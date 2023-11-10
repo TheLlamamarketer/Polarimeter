@@ -1,0 +1,145 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+from matplotlib.widgets import CheckButtons, RadioButtons
+import math 
+
+def func(x, a, c, d):
+    return a * np.sin((x + c)/180.0 *2*math.pi )+ d
+
+def residuals(params, x, y):
+    return y - func(x, *params)
+
+def load_data(filename):
+    data_file = open(filename, "r")
+    lines = data_file.readlines()
+    data_file.close()
+
+    datasets = []
+    i = 0
+    while i < len(lines):
+        if "switching colors" in lines[i]:
+            i += 1
+        else:
+            data = []
+            while i < len(lines) and "switching colors" not in lines[i]:
+                line = lines[i].strip()
+                if "," in line:
+                    data.append(list(map(float, line.split(",")))[0:3])
+                i += 1
+            data = np.array(data)
+            xdata = data[:, 0]
+            ydata = data[:, 1]
+            for j in range(len(xdata)):
+                n = int(xdata[j] / 360)
+                xdata[j] -= n * 360
+            xdata, ydata = zip(*sorted(zip(xdata, ydata)))
+            datasets.append((xdata, ydata))
+    return datasets
+
+def fit_dataset(dataset, p0, fits):
+    xdata, ydata = dataset
+    params, _ = leastsq(residuals, p0, args=(xdata, ydata))
+    res = residuals(params, xdata, ydata)
+    rms = np.sqrt(np.mean(res**2))
+    print(f"Dataset {len(fits) + 1} parameters: {params}, RMS error: {rms}")
+    return params, func(xdata, *params), res, ydata
+
+
+def plot_datasets(datasets, fits, residuals, ydata_list, params):
+    colors = ["r", "g", "b"]
+    lines = []
+    for i, dataset in enumerate(datasets):
+        xdata, ydata = dataset
+        line, = plt.plot(xdata, ydata_list[i], colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Data")
+        lines.append(line)
+        line, = plt.plot(xdata, fits[i], colors[i % len(colors)] + "-", label=f"Dataset {i + 1} Fit")
+        lines.append(line)
+        line, = plt.plot(xdata, func(xdata, *params[i]), colors[i % len(colors)] + "--", label=f"Dataset {i + 1} Function")
+        lines.append(line)
+        line, = plt.plot(xdata, residuals[i], colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Residuals")
+        lines.append(line)
+    plt.axhline(y=0, color='black', linestyle='-')
+    plt.legend()
+    return lines 
+
+def update_plot(label, fig, lines, labels):
+    index = labels.index(label)
+    ax = fig.axes[0]
+    lines = ax.lines
+    lines[index*4].set_visible(not lines[index*4].get_visible()) # data
+    lines[index*4+1].set_visible(not lines[index*4+1].get_visible()) # fit
+    lines[index*4+2].set_visible(not lines[index*4+2].get_visible()) # function
+    lines[index*4+3].set_visible(not lines[index*4+3].get_visible()) # residuals
+    fig.canvas.draw()
+
+def update_sensor(index, sensor_labels, lines, ax, radio='Visual Sensor'):
+    data = lines[index].get_ydata()
+    ydata = data[:, 1]
+    if sensor_labels[index] == 'IR Sensor':
+        ydata = np.ones_like(ydata) * 2
+    elif sensor_labels[index] == 'Visual Sensor':
+        ax.clear()
+        return
+
+    lines[index].set_ydata(ydata)
+    ax.relim()
+    ax.autoscale_view(True,True,True)
+    ax.figure.canvas.draw_idle()
+
+    if radio is not None:
+        radio.set_active(sensor_labels.index(radio))
+
+def main(filenames, p0):
+    for i, filename in enumerate(filenames):
+        datasets = load_data(filename)
+        fits = []
+        params_list = []
+        residuals_list = []
+        ydata_list = []
+        for dataset in datasets:
+            params, fit, res, ydata = fit_dataset(dataset, p0, fits)
+            params_list.append(params)
+            fits.append(fit)
+            residuals_list.append(res)
+            ydata_list.append(ydata)
+
+        fig, ax = plt.subplots()
+
+        labels = ["Red", "Green", "Blue"]
+        sensor_labels = ["Visual Sensor", "IR Sensor"]
+        lines = plot_datasets(datasets, fits, residuals_list, ydata_list, params_list)
+
+        # Set the initial states of the buttons
+        initial_visibility = [line.get_visible() for line in lines]
+        initial_sensor = []
+
+        # Set the position of the checkbox to the right of the plot
+        rax = fig.add_axes([0.9, 0.5, 0.1, 0.1])
+        check = CheckButtons(rax, labels=labels, actives=initial_visibility)
+
+        # Add a radio button with two options "Visual Sensor" and "IR Sensor"
+        dax = fig.add_axes([0.9, 0.3, 0.1, 0.1])
+        radio = RadioButtons(dax, labels=sensor_labels , active=0)
+
+        radio.on_clicked(lambda label: update_sensor(sensor_labels.index(label), sensor_labels, ydata_list, ax, radio=radio.value_selected))
+
+        for label in check.labels:
+            label.set_picker(True)
+        check.on_clicked(lambda label: update_plot(label, fig, lines, labels))  # add update_plot as a function to call when checkbox is clicked
+
+        # Set the title of the figure
+        fig.suptitle(f"Figure {i+1}: {filename}")
+
+        plt.show(block=True)  # Show the figure and continue executing the program
+
+
+
+
+# Initial guess for the parameters
+p0 = [7000, 6, 7000]
+
+#Files being analyzed
+filenames = ["Test 6a.txt"]
+
+main(filenames, p0)

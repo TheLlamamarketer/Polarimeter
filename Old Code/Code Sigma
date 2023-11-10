@@ -1,0 +1,163 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+from matplotlib.widgets import CheckButtons, RadioButtons
+import math 
+from scipy.signal import argrelextrema
+
+
+def func(x, a, c, d):
+    return a * np.sin((x + c)/180.0 *2*math.pi )+ d
+
+def residuals(params, x, y):
+    return (y - func(x, *params)) 
+
+def load_data(filename, sensor):
+    data_file = open(filename, "r")
+    lines = data_file.readlines()
+    data_file.close()
+
+    datasets = []
+    i = 0
+    while i < len(lines):
+        if "switching colors" in lines[i]:
+            i += 1
+        #elif "Starting TEST" or "Starting new cycle" in lines[i]:
+            #return
+        else:
+            data = []
+            while i < len(lines) and "switching colors" not in lines[i]:
+                line = lines[i].strip()
+                if "," in line:
+                    data.append(list(map(float, line.split(",")))[0:3])
+                i += 1
+            data = np.array(data)
+            xdata = data[:, 0]
+            ydata = data[:, sensor]
+            for j in range(len(xdata)):
+                n = int(xdata[j] / 360)
+                xdata[j] -= n * 360
+            xdata, ydata = zip(*sorted(zip(xdata, ydata)))
+            datasets.append((xdata, ydata))
+    return datasets
+
+def weight_func(x, y):
+    # Weight function that gives higher weight to values around the minimums and maximums
+    y = np.asarray(y)
+    local_minima = argrelextrema(y, np.less)[0]
+    local_maxima = argrelextrema(y, np.greater)[0]
+    weights = np.ones_like(y)
+    for min_idx in local_minima:
+        # Define a window around each minimum
+        window = np.logical_and(x >= x[min_idx]-10, x <= x[min_idx]+10)
+        weights[window] *= 2
+    for max_idx in local_maxima:
+        # Define a window around each maximum
+        window = np.logical_and(x >= x[max_idx]-10, x <= x[max_idx]+10)
+        weights[window] *= 2
+    return weights
+
+
+def fit_dataset(dataset, p0, fits, weight_func):
+    xdata, ydata = dataset
+    try:
+        params, _ = leastsq(func, xdata, ydata, p0=p0, sigma=weight_func(ydata))
+        if len(params) != 3:
+            print(f"Unexpected number of parameters: {len(params)}. Skipping dataset.")
+            return None, None, None, None
+    except RuntimeError:
+        print(f"Curve fit failed. Skipping dataset.")
+        return None, None, None, None
+
+    fits.append(func(xdata, *params))
+    res = residuals(params, xdata, ydata)
+    ydata = ydata - res
+    return params, fits[-1], res, ydata
+
+
+def plot_datasets(datasets, fits, residuals, ydata_list, params):
+    colors = ["r", "g", "b"]
+    lines = []
+    for i, dataset in enumerate(datasets):
+        xdata, ydata = dataset
+        line, = plt.plot(xdata, ydata_list[i], colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Data")
+        lines.append(line)
+        line, = plt.plot(xdata, fits[i], colors[i % len(colors)] + "-", label=f"Dataset {i + 1} Fit")
+        lines.append(line)
+        line, = plt.plot(xdata, func(xdata, *params[i]), colors[i % len(colors)] + "--", label=f"Dataset {i + 1} Function")
+        lines.append(line)
+        line, = plt.plot(xdata, residuals[i], colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Residuals")
+        lines.append(line)
+    plt.axhline(y=0, color='black', linestyle='-')
+    plt.legend()
+    return lines 
+
+def update_plot(label, fig, lines, labels):
+    index = labels.index(label)
+    ax = fig.axes[0]
+    lines = ax.lines
+    lines[index*4].set_visible(not lines[index*4].get_visible()) # data
+    lines[index*4+1].set_visible(not lines[index*4+1].get_visible()) # fit
+    lines[index*4+2].set_visible(not lines[index*4+2].get_visible()) # function
+    lines[index*4+3].set_visible(not lines[index*4+3].get_visible()) # residuals
+    fig.canvas.draw()
+
+def update_sensor(index, sensor_labels, lines, ax, radio='Visual Sensor'):
+    data = lines[index].get_ydata()
+    ydata = data[:, 1]
+    if sensor_labels[index] == 'IR Sensor':
+        ydata = np.ones_like(ydata) * 2
+    elif sensor_labels[index] == 'Visual Sensor':
+        ax.clear()
+        return
+
+    lines[index].set_ydata(ydata)
+    ax.relim()
+    ax.autoscale_view(True,True,True)
+    ax.figure.canvas.draw_idle()
+
+    if radio is not None:
+        radio.set_active(sensor_labels.index(radio))
+
+def main(filenames, p0, sensor):
+    for i, filename in enumerate(filenames):
+        datasets = load_data(filename, sensor)
+        fits = []
+        params_list = []
+        residuals_list = []
+        ydata_list = []
+        for dataset in datasets:
+            params, fit, res, ydata = fit_dataset(dataset, p0, fits, weight_func)
+            params_list.append(params)
+            fits.append(fit)
+            residuals_list.append(res)
+            ydata_list.append(ydata)
+
+        fig, ax = plt.subplots()
+
+        labels = ["Red", "Green", "Blue"]
+        sensor_labels = ["Visual Sensor", "IR Sensor"]
+        lines = plot_datasets(datasets, fits, residuals_list, ydata_list, params_list)
+
+        # Set the initial states of the buttons
+        initial_visibility = [line.get_visible() for line in lines]
+        initial_sensor = []
+
+        # Set the position of the checkbox to the right of the plot
+        rax = fig.add_axes([0.9, 0.5, 0.1, 0.1])
+        check = CheckButtons(rax, labels=labels, actives=initial_visibility)
+
+        for label in check.labels:
+            label.set_picker(True)
+        check.on_clicked(lambda label: update_plot(label, fig, lines, labels))  # add update_plot as a function to call when checkbox is clicked
+
+        # Set the title of the figure
+        fig.suptitle(f"Figure {i+1}: {filename}")
+
+        plt.show(block=True)  # Show the figure and continue executing the program
+
+if __name__ == "__main__":
+    filenames = ["16.txt", "17.txt"]
+    p0 = [7000, 6, 7000]
+    sensor = 1
+    main(filenames, p0, sensor)

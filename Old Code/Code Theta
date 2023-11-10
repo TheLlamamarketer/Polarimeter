@@ -1,0 +1,232 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+from matplotlib.widgets import CheckButtons, RadioButtons
+import math
+
+
+def func(x, d, a0, a1, a2, a3, a4, a5, a6, a7, b0, b1, b2, b3, b4, b5, b6, b7):
+    return (
+        a0 * np.sin((x + b0) / 180.0 * 2 * math.pi)
+        + d
+        + a1 * np.sin((x + b1) / 66.5546 * 2 * math.pi)
+        + a2 * np.sin((x + b2) / 255.50617 * 2 * math.pi)
+        + a3 * np.sin((x + b3) / 360.17965 * 2 * math.pi)
+        + a4 * np.sin((x + b4) / 120.01067 * 2 * math.pi)
+        + a5 * np.sin((x + b5) / 43.75763 * 2 * math.pi)
+        + a6 * np.sin((x + b6) / 89.98935 * 2 * math.pi)
+        + a7 * np.sin((x + b7) / 72.0235 * 2 * math.pi)
+    )
+
+
+def func2(
+    x,
+    d,
+    a0,
+    a1,
+    a2,
+    a3,
+    a4,
+    a5,
+    a6,
+    a7,
+    b0,
+    b1,
+    b2,
+    b3,
+    b4,
+    b5,
+    b6,
+    b7,
+    p1,
+    p2,
+    p3,
+    p4,
+    p5,
+    p6,
+    p7,
+):
+    return (
+        a0 * np.sin((x + b0) / 180 * 2 * math.pi)
+        + d
+        + a1 * np.sin((x + b1) / p1 * 2 * math.pi)
+        + a2 * np.sin((x + b2) / p2 * 2 * math.pi)
+        + a3 * np.sin((x + b3) / p3 * 2 * math.pi)
+        + a4 * np.sin((x + b4) / p4 * 2 * math.pi)
+        + a5 * np.sin((x + b5) / p5 * 2 * math.pi)
+        + a6 * np.sin((x + b6) / p6 * 2 * math.pi)
+        + a7 * np.sin((x + b7) / p7 * 2 * math.pi)
+    )
+
+
+def residuals(params, x, y):
+    return y - func(x, *params)
+
+
+def residuals2(params, x, y):
+    return y - func2(x, *params)
+
+
+def load_data(filename, sensor):
+    data_file = open(filename, "r")
+    lines = data_file.readlines()
+    data_file.close()
+
+    datasets = []
+    i = 0
+    while i < len(lines):
+        if "switching colors" in lines[i]:
+            i += 1
+        else:
+            data = []
+            while i < len(lines) and "switching colors" not in lines[i]:
+                line = lines[i].strip()
+                if "," in line:
+                    data.append(list(map(float, line.split(",")))[0:3])
+                i += 1
+            data = np.array(data)
+            xdata = data[:, 0]
+            ydata = data[:, sensor]
+            # for j in range(len(xdata)):
+            #   n = int(xdata[j] / 360)
+            #  xdata[j] -= n * 360
+            xdata, ydata = zip(*sorted(zip(xdata, ydata)))
+            datasets.append((xdata, ydata))
+    return datasets
+
+
+def fit_dataset(dataset, p0):
+    xdata, ydata = dataset
+
+    params, _ = leastsq(residuals, p0, args=(xdata, ydata))
+    res = residuals(params, xdata, ydata)
+    rms = np.sqrt(np.mean(res**2))
+    # print(f"Dataset {len(fits) + 1} RMS error: {rms}")
+    return params, func(xdata, *params), res, ydata
+
+
+def fit_dataset2(dataset, param, fits):
+    xdata, ydata = dataset  # only use the first two values
+    extra = [66.55466, 255.50617, 360.17965, 120.01067, 43.75763, 89.98935, 72.0235]
+    p1 = np.append(param, [extra])
+    params, _ = leastsq(residuals2, p1, args=(xdata, ydata))
+    res = residuals2(params, xdata, ydata)
+    rms = np.sqrt(np.mean(res**2))
+    # Calculate relative RMS
+    amplitude = np.max(ydata) - np.min(ydata)
+    norm_rms = 1000 * rms / amplitude
+    print(
+        f"Dataset {len(fits) + 1} parameters: {params[9]}, RMS error: {rms}, Normalized RMS: {norm_rms}"
+    )
+    return params, func2(xdata, *params), res, ydata
+
+
+def plot_datasets(datasets, fits, residuals, ydata_list, params, ax1, ax2):
+    colors = ["r", "g", "b"]
+    lines = []
+    for i, dataset in enumerate(datasets):
+        xdata, ydata = dataset
+        line = ax1.scatter(
+            xdata,
+            ydata_list[i],
+            c=colors[i % len(colors)],
+            marker="o",
+            s=10,
+            label=f"Dataset {i + 1} Data",
+        )
+        lines.append(line)
+        (line,) = ax1.plot(
+            xdata, fits[i], colors[i % len(colors)] + "-", label=f"Dataset {i + 1} Fit"
+        )
+        lines.append(line)
+        (line,) = ax1.plot(
+            xdata,
+            func2(xdata, *params[i]),
+            colors[i % len(colors)] + "--",
+            label=f"Dataset {i + 1} Function",
+        )
+        lines.append(line)
+        (line,) = ax2.plot(
+            xdata,
+            residuals[i],
+            colors[i % len(colors)] + "o",
+            label=f"Dataset {i + 1} Residuals",
+        )
+        lines.append(line)
+    ax1.axhline(y=0, color="black", linestyle="-")
+    # ax1.legend()
+    ax2.axhline(y=0, color="black", linestyle="-")
+    # ax2.set_xlim([0, 1080])
+    # ax2.set_ylim([-250, 250])
+    ax1.set_ylabel("Lux")
+    ax2.set_xlabel("Rotation in Grad")
+    ax2.set_ylabel("Residuen")
+    return lines
+
+
+def update_plot(label, fig, lines, labels):
+    index = labels.index(label)
+    lines[index * 4].set_visible(not lines[index * 4].get_visible())
+    lines[index * 4 + 1].set_visible(not lines[index * 4 + 1].get_visible())
+    lines[index * 4 + 2].set_visible(not lines[index * 4 + 2].get_visible())
+    lines[index * 4 + 3].set_visible(not lines[index * 4 + 3].get_visible())
+    fig.canvas.draw()
+
+
+def main(filenames, p0, sensor):
+    for i, filename in enumerate(filenames):
+        datasets = load_data(filename, sensor)
+        fits = []
+        params_list = []
+        residuals_list = []
+        ydata_list = []
+        for dataset in datasets:
+            params, fit, res, ydata = fit_dataset(dataset, p0)
+            params, fit, res, ydata = fit_dataset2(dataset, params, fits)
+            params_list.append(params)
+            fits.append(fit)
+            residuals_list.append(res)
+            ydata_list.append(ydata)
+
+        fig, (ax1, ax2) = plt.subplots(
+            nrows=2,
+            figsize=(8, 8),
+            gridspec_kw={"height_ratios": [3, 1]},
+            sharex=True,
+            constrained_layout=False,
+        )
+
+        lines = plot_datasets(
+            datasets, fits, residuals_list, ydata_list, params_list, ax1, ax2
+        )
+
+        # Set the initial states of the buttons
+        initial_visibility = [line.get_visible() for line in lines]
+        initial_sensor = []
+        labels = ["Red", "Green", "Blue"]
+
+        # Set the position of the checkbox to the right of the plot
+        rax = fig.add_axes([0.9, 0.5, 0.1, 0.1])
+        check = CheckButtons(rax, labels=labels, actives=initial_visibility)
+
+        for label in check.labels:
+            label.set_picker(True)
+        check.on_clicked(
+            lambda label: update_plot(label, fig, lines, labels)
+        )  # add update_plot as a function to call when checkbox is clicked
+
+        # Set the title of the figure
+        fig.suptitle(f"Figure {i+1}: {filename}")
+
+        plt.show(block=True)  # Show the figure and continue executing the program
+
+
+# Initial guess for the parameters
+# p0 = [7.67208931e+03,  6.54452886e+01,  7.87885540e+03, -1.01838805e+02, 1.01962840e+02,  8.56179967e+01,  3.02142809e+01, -1.72283203e+01, 8.67467880e+00, 0, -4.59896146e+00,  3.75684255e+00, -4.18383458e+01, -4.31154723e+02, -1.22797638e+01,  2.58817370e+01, -6.31917959e+00]
+p0 = [5000, 7000, 160, 160, 50, 24, 24, 20, 8, 6, 0, -40, -400, -20, 20, 8, 12]
+
+# Files being analyzed
+filenames = ["27.txt"]
+sensor = 1
+
+main(filenames, p0, sensor)

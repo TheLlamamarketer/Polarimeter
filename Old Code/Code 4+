@@ -1,0 +1,72 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+import math 
+
+# Define the function you want to fit to the data
+def func(x, a, b, c, d):
+    return a * np.sin((x + c)/b *2*math.pi )+ d
+
+# Define the residual function (i.e., the function to minimize)
+def residuals(params, x, y):
+    return y - func(x, *params)
+
+# Initialize variables
+data = "RGB 50 1.txt"
+xdata = []
+ydata = []
+datasets = []
+colors = ["Red", "Green", "Blue"]
+colors_index = 0
+
+# Load the data from a text file
+with open(data, "r") as f:
+    for line in f:
+        if "switching colors" in line:
+            datasets.append((xdata, ydata))
+            xdata = []
+            ydata = []
+            colors_index += 1
+        else:
+            values = line.strip().split(",")
+            xdata.append(float(values[0]))
+            ydata.append(float(values[1]))
+
+# Append the last dataset
+datasets.append((xdata, ydata))
+
+# Fit and plot each dataset separately
+for i, dataset in enumerate(datasets):
+    xdata, ydata = dataset
+
+    for j in range(len(xdata)):
+        n = int(xdata[j]/360)
+        xdata[j] -= n*360
+
+    xdata, ydata = zip(*sorted(zip(xdata, ydata)))
+
+    # Initial guess for the parameters
+    p0 = [7000, 180, 6, 7000]
+
+    # Use leastsq to find the optimal parameters
+    params, _ = leastsq(residuals, p0, args=(xdata, ydata))
+    res = residuals(params, xdata, ydata)
+    rms = np.sqrt(np.mean(res**2))
+
+    if colors_index >= len(colors):
+        print(f"Error: Expected {len(datasets)} colors, but found {len(colors)}.")
+        exit(1)
+
+    # Print the optimal parameters
+    print(f"Dataset {i+2} ({colors[colors_index]}):", params, rms)
+
+    # Plot the data and the fitted function
+    plt.subplot(3, 1, i+1)
+    plt.plot(xdata, ydata, 'bo', label='data')
+    plt.plot(xdata, func(xdata, *params), 'r-', label='fit')
+    plt.plot(xdata, res, 'go', label='residuals')
+    plt.title(f"Dataset {i+1} ({colors[colors_index]})")
+    plt.legend()
+
+plt.tight_layout()
+plt.show()

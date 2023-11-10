@@ -1,0 +1,141 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+import math
+
+
+def func(x, d, a0, b0):
+    return d + a0 * np.sin((x + b0) / 180 * 2 * math.pi)
+
+
+def residuals(params, x, y):
+    return y - func(x, *params)
+
+
+def load_data(filename):
+    data_file = open(filename, "r")
+    lines = data_file.readlines()
+    data_file.close()
+
+    dataset = []
+    data = []
+
+    for line in lines:
+        line = line.strip()
+        if "," in line:
+            row = list(map(float, line.split(",")))
+            data.append(row)
+
+    data = np.array(data)
+    xdata = data[:, 0]
+    ydata = data[:, 1:]
+
+    xdata %= 360  # Ensure xdata stays within 360° range
+
+    sorted_indices = np.argsort(xdata)
+    xdata = xdata[sorted_indices]
+    ydata = ydata[sorted_indices]
+
+    dataset.append((xdata, np.array(ydata)))  # Convert ydata to a NumPy array
+    return dataset
+
+
+def fit_dataset(xdata, ydata, p0):
+    params, _ = leastsq(residuals, p0, args=(xdata, ydata))
+    res = residuals(params, xdata, ydata)
+    rms = np.sqrt(np.mean(res**2))
+    return params, func(xdata, *params), res, rms
+
+
+def plot_data(xdata, ydata, fits, residuals):
+    colors = ["Red", "Green", "Blue"]
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(10, 8), gridspec_kw={"height_ratios": [3, 1]}, sharex=True
+    )
+
+    for i in range(ydata.shape[1]):
+        ax1.scatter(xdata, ydata[:, i], c=colors[i], s=10, label=f"{colors[i]} Data")
+        ax1.plot(xdata, fits[i], c=colors[i], label=f"{colors[i]} Fit")
+
+        ax2.scatter(
+            xdata, residuals[i], c=colors[i], s=7, label=f"{colors[i]} Residuals"
+        )
+
+    ax1.set_ylabel("Lichtintensität in Analog-Digital-Einheiten")
+    ax1.set_title("Daten und Anpassung")
+    ax1.legend()
+    ax1.grid(True)
+
+    ax2.set_xlabel("Rotation in °")
+    ax2.set_ylabel("Residuen")
+    ax2.set_title("Residuen")
+    ax2.grid(True)
+
+    # ax2.set_ylim([50, -50])
+
+    plt.tight_layout()
+    plt.show()
+
+
+def phase_dilemma(phase, amplitude):
+    if amplitude > 0:
+        phase %= 360
+        if phase > 180:
+            phase -= 180
+
+    if amplitude < 0:
+        phase %= 360
+        if phase > 180:
+            phase = (phase + 90) % 360
+        else:
+            phase = (phase + 270) % 360
+
+    return phase, abs(amplitude)
+
+
+def main(filename, p0):
+    dataset = load_data(filename)  # Load the dataset from the file
+
+    xdata, ydata = dataset[0]  # Access the first element of the dataset list
+
+    params_list = []
+    fits = []
+    residuals_list = []
+    rms_list = []
+    norm_rms_list = []
+
+    for i in range(ydata.shape[1]):
+        params, fit, res, rms = fit_dataset(xdata, ydata[:, i], p0)
+        params_list.append(params)
+        fits.append(fit)
+        residuals_list.append(res)
+        rms_list.append(rms)
+
+        # Calculate relative RMS
+        # amplitude = np.max(fit) - np.min(fit)
+        amplitude = np.max(ydata[:, i]) - np.min(ydata[:, i])
+        norm_rms = 1000 * rms / amplitude
+        norm_rms_list.append(norm_rms)
+
+    # Print results for each color
+    colors = ["Red", "Green", "Blue"]
+    print(f"{filename}")
+    for i in range(len(colors)):
+        print(f"{colors[i]}:")
+        np.set_printoptions(suppress=True, precision=4)
+        phase, ampli = phase_dilemma(params_list[i][2], params_list[i][1])
+        print(f"Phase: {phase}")
+        print(f"Amplitude: {ampli}")
+        print(f"RMS: {rms_list[i]}")
+        print(f"Normalized RMS: {norm_rms_list[i]}")
+        print()
+    # Plot the data
+    plot_data(xdata, ydata, fits, residuals_list)
+
+
+p0 = [1200, 1127, 1]
+
+# File being analyzed
+filename = "3-16.txt"
+
+main(filename, p0)

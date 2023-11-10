@@ -1,0 +1,126 @@
+import numpy as np
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
+from matplotlib.widgets import CheckButtons, RadioButtons
+import math 
+
+# Define the dataset functions
+def func(x, a, b, c, d):
+    return a * np.sin((x + c)/b *2*math.pi )+ d
+
+# Load the data
+data_file = "RGB 50 3.txt", "r"
+data = np.loadtxt(data_file, delimiter=",")
+
+# Define the initial y column and x data
+ycol = 1
+xdata = data[:, 0]
+
+# Define the function to update the y column
+def update_ycol(label):
+    global ycol
+    if label == "Visual Sensor":
+        ycol = 1
+    elif label == "IR Sensor":
+        ycol = 2
+
+    # Update the data and fits
+    ydata = data[:, ycol]
+    fits = []
+    residuals_list = []
+    data_functions = []
+    for func in [func1, func2, func3]:
+        # Fit the data to the function
+        params, cov = curve_fit(func, xdata, ydata)
+        res = ydata - func(xdata, *params)
+        rms = np.sqrt(np.mean(res**2))
+
+        # Print the optimal parameters and RMS error
+        print(f"Dataset {len(fits) + 1} parameters: {params}, RMS error: {rms}")
+        
+        # Store the data function, fit, residuals and ydata
+        data_functions.append(lambda x, a=params[0], b=params[1], c=params[2], d=params[3]: func(x, a, b, c, d))
+        fits.append(func(xdata, *params))
+        residuals_list.append(res)
+
+    # Update the plot
+    update_plot(None)
+
+# Define a function to update the plot when a check button is clicked
+def update_plot(label):
+    index = labels.index(label)
+    lines[index*4].set_visible(not lines[index*4].get_visible()) # data
+    lines[index*4+1].set_visible(not lines[index*4+1].get_visible()) # fit
+    lines[index*4+2].set_visible(not lines[index*4+2].get_visible()) # function
+    lines[index*4+3].set_visible(not lines[index*4+3].get_visible()) # residuals
+    fig.canvas.draw()
+
+# Initialize the plot
+fig, ax = plt.subplots()
+
+# Define the initial y data
+ydata = data[:, ycol]
+
+# Fit the data to each dataset function
+fits = []
+residuals_list = []
+data_functions = []
+for func in func:
+    params, cov = curve_fit(func, xdata, ydata)
+    res = ydata - func(xdata, *params)
+    rms = np.sqrt(np.mean(res**2))
+    
+    # Print the optimal parameters and RMS error
+    print(f"Dataset {len(fits) + 1} parameters: {params}, RMS error: {rms}")
+    
+    # Store the data function, fit, residuals and ydata
+    data_functions.append(lambda x, a=params[0], b=params[1], c=params[2], d=params[3]: func(x, a, b, c, d))
+    fits.append(func(xdata, *params))
+    residuals_list.append(res)
+
+# Plot the data and fits for each dataset
+colors = ["r", "g", "b"]
+lines = []
+for i in range(3):
+    # Plot the data
+    line, = plt.plot(xdata, ydata_list[i], colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Data")
+    lines.append(line)
+    
+    # Plot the fit
+    line, = plt.plot(xdata, fits[i], colors[i % len(colors)] + "-", label=f"Dataset {i + 1} Fit")
+    lines.append(line)
+    
+    # Plot the function
+    line, = plt.plot(xdata, data_functions[i](xdata), colors[i % len(colors)] + "--", label=f"Dataset {i + 1} Function")
+    lines.append(line)
+    
+    # Plot the residuals
+    line, = plt.plot(xdata, residuals_list[i], colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Residuals")
+    lines.append(line)
+plt.axhline(y=0, color='black', linestyle='-')
+plt.legend()
+
+# Define a function to update the plot when a check button is clicked
+def update_plot(label):
+    index = labels.index(label)
+    lines[index*4].set_visible(not lines[index*4].get_visible()) # data
+    lines[index*4+1].set_visible(not lines[index*4+1].get_visible()) # fit
+    lines[index*4+2].set_visible(not lines[index*4+2].get_visible()) # function
+    lines[index*4+3].set_visible(not lines[index*4+3].get_visible()) # residuals
+    fig.canvas.draw()
+
+# Define the check buttons
+labels = ["Red", "Green", "Blue"]
+check_buttons_ax = plt.axes([0.9, 0.5, 0.1, 0.1])
+check_buttons = CheckButtons(check_buttons_ax, labels, [True, True, True])
+check_buttons.on_clicked(update_plot)
+
+
+# Define the RadioButtons
+Sensor_labels = ["Visual Sensor", "IR Sensor"]
+radio_buttons_ax = plt.axes([0.9, 0.3, 0.1, 0.1])
+radio_buttons = RadioButtons(radio_buttons_ax,Sensor_labels, active=0)
+radio_buttons.on_clicked(update_ydata)
+
+# Show the plot
+plt.show()

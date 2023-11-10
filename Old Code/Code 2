@@ -1,0 +1,73 @@
+import numpy as np
+from scipy.optimize import least_squares
+import matplotlib.pyplot as plt
+
+# Define the function you want to fit to the data
+def func(x, a, b, c, d):
+    return a * np.sin(b *( x + c)) + d
+
+# Generate some example data
+xdata = np.linspace(0, 4*np.pi, 1000)
+ydata = func(xdata, 1, 2, 2, 2) + 0.2 * np.random.normal(size=len(xdata))
+
+# Define the residual function (i.e., the function to minimize)
+def residuals(params, x, y):
+    return y - func(x, *params)
+
+# Initial guess for the parameters
+p0 = [1, 1, 4, 0]
+
+# Use leastsq to find the optimal parameters
+params, _ = least_squares(residuals, p0, args=(xdata, ydata))
+
+# Print the optimal parameters
+print(params)
+
+# Plot the data and the fitted function
+plt.plot(xdata, ydata, 'bo', label='data')
+plt.plot(xdata, func(xdata, *params), 'r-', label='fit')
+plt.legend()
+
+"""
+import numpy as np
+from scipy.optimize import leastsq
+import pylab as plt
+
+N = 1000 # number of data points
+t = np.linspace(0, 4*np.pi, N)
+f = 2 # Optional!! Advised not to use
+data = 3.0*np.sin(f*t+0.001) + 0.5 + np.random.randn(N) # create artificial data with noise
+
+guess_mean = np.mean(data)
+guess_std = 3*np.std(data)/(2**0.5)/(2**0.5)
+guess_phase = 0
+guess_freq = 2
+guess_amp = 1
+
+# we'll use this to plot our first estimate. This might already be good enough for you
+data_first_guess = guess_std*np.sin(t+guess_phase) + guess_mean
+
+# Define the function to optimize, in this case, we want to minimize the difference
+# between the actual data and our "guessed" parameters
+optimize_func = lambda x: x[0]*np.sin(x[1]*t+x[2]) + x[3] - data
+est_amp, est_freq, est_phase, est_mean = leastsq(optimize_func, [guess_amp, guess_freq, guess_phase, guess_mean])[0]
+
+# recreate the fitted curve using the optimized parameters
+data_fit = est_amp*np.sin(est_freq*t+est_phase) + est_mean
+
+# recreate the fitted curve using the optimized parameters
+
+fine_t = np.arange(0,max(t),0.1)
+data_fit=est_amp*np.sin(est_freq*fine_t+est_phase)+est_mean
+
+a = round(est_amp,2)
+b = round(est_freq,2)
+c = round(est_phase,5)
+d = round(est_mean,2)
+
+plt.plot(t, data, '.')
+plt.plot(t, data_first_guess, label='first guess')
+plt.plot(fine_t, data_fit, label=f'after fitting,{a} sin({b}x + {c}) + {d} ')
+plt.legend()
+plt.show()
+"""

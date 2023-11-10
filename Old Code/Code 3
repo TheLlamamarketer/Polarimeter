@@ -1,0 +1,49 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+import math 
+
+# Define the function you want to fit to the data
+def func(x, a, b, c, d):
+    return a + b * np.cos((x - d)/180 *2*math.pi ) + c * np.sin((x - d)/180 *2*math.pi )
+
+##return a + b * np.cos((x + d)/180 *2*math.pi) + c * np.sin((x + d)/180 *2*math.pi )
+data = "40 Red 3.txt"
+
+# Load the data from a text file
+ydata = np.loadtxt(data, delimiter=',', usecols=(1))
+
+# Generate x values to match the length of ydata
+xdata = np.loadtxt(data, delimiter=',', usecols=(0,))
+
+
+for i in range(len(xdata)):
+    n = int(xdata[i]/360)
+    xdata[i]-= n*360
+
+xdata, ydata = zip(*sorted(zip(xdata, ydata)))
+
+# Define the residual function (i.e., the function to minimize)
+def residuals(params, x, y):
+    return y - func(x, *params)
+
+
+
+
+# Initial guess for the parameters
+p0 = [12000, 10000, 10000, 70]
+
+# Use leastsq to find the optimal parameters
+params, _ = leastsq(residuals, p0, args=(xdata, ydata))
+res = residuals(params, xdata, ydata)
+rms = np.sqrt(np.mean(res**2))
+
+# Print the optimal parameters
+print(params, rms)
+
+# Plot the data and the fitted function
+plt.plot(xdata, ydata, 'bo', label='data')
+plt.plot(xdata, func(xdata, *params), 'r-', label='fit')
+plt.plot(xdata, res, 'go', label='residuals' )
+plt.legend()
+plt.show()

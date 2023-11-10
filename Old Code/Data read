@@ -1,0 +1,23 @@
+import serial
+
+ser = serial.Serial('COM3', 115200) 
+
+with open('Water 5bb.txt', 'a') as f:
+    while True:
+        # read data from the serial port and write it to the file
+        line = ser.readline().decode().strip()
+        if line:
+            f.write(line + '\n')
+            f.flush()
+            print(line)  # print the received data to the console
+        
+        # read input from the user and send it to the Arduino
+        message = input('Enter a message to send to the Arduino (or press Enter to skip): ')
+        if message:
+            ser.write(message.encode() + b'\n')
+        
+        # read input from the console and send it to the Arduino
+        if ser.in_waiting:
+            message = ser.readline().decode().strip()
+            print(message)  # print the received data from Arduino to the console
+

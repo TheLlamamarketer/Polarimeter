@@ -1,0 +1,193 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+import math
+import tkinter as tk
+from tkinter import scrolledtext, IntVar
+
+
+def func(x, d, a0, a1, a2, a3, a4, a5, b0, b1, b2, b3, b4, b5):
+    return (
+        d
+        + a0 * np.sin((x + b0) / 180 * 2 * math.pi)
+        + a1 * np.sin((x + b1) / 6.207 * 2 * math.pi)
+        + a2 * np.sin((x + b2) / 5.807 * 2 * math.pi)
+        + a3 * np.sin((x + b3) / 71.428 * 2 * math.pi)
+        + a4 * np.sin((x + b4) / 45.25 * 2 * math.pi)
+        + a5 * np.sin((x + b5) / 60 * 2 * math.pi)
+    )
+
+
+def func2(x, d, a0, a1, a2, a3, a4, a5, b0, b1, b2, b3, b4, b5, c1, c2, c3, c4, c5):
+    return (
+        d
+        + a0 * np.sin((x + b0) / 180 * 2 * math.pi)
+        + a1 * np.sin((x + b1) / c1 * 2 * math.pi)
+        + a2 * np.sin((x + b2) / c2 * 2 * math.pi)
+        + a3 * np.sin((x + b3) / c3 * 2 * math.pi)
+        + a4 * np.sin((x + b4) / c4 * 2 * math.pi)
+        + a5 * np.sin((x + b5) / c5 * 2 * math.pi)
+    )
+
+
+def func0(x, d, a0, b0):
+    return d + a0 * np.sin((x + b0) / 180 * 2 * math.pi)
+
+
+def residuals(params, x, y):
+    return y - func(x, *params)
+
+
+def residuals2(params, x, y):
+    return y - func2(x, *params)
+
+
+def load_data(filename):
+    data_file = open(filename, "r")
+    lines = data_file.readlines()
+    data_file.close()
+
+    dataset = []
+    data = []
+
+    for line in lines:
+        line = line.strip()
+        if "," in line:
+            row = list(map(float, line.split(",")))
+            data.append(row)
+
+    data = np.array(data)
+    xdata = data[:, 0]
+    ydata = data[:, 1:]
+
+    xdata = xdata % 360  # Ensure xdata stays within 360° range
+
+    sorted_indices = np.argsort(xdata)
+    xdata = xdata[sorted_indices]
+    ydata = ydata[sorted_indices]
+
+    dataset.append((xdata, np.array(ydata)))  # Convert ydata to a NumPy array
+    return dataset
+
+
+def fit_dataset(xdata, ydata, p0):
+    params, _ = leastsq(residuals, p0, args=(xdata, ydata))
+    res = residuals(params, xdata, ydata)
+    rms = np.sqrt(np.mean(res**2))
+    return params, func(xdata, *params), res, rms
+
+
+def fit_dataset2(xdata, ydata, param):
+    p0 = [6.21, 5.8, 71.5, 45, 60]
+    p1 = np.concatenate((param, p0))
+    params, _ = leastsq(residuals2, p1, args=(xdata, ydata))
+    res = residuals2(params, xdata, ydata)
+    rms = np.sqrt(np.mean(res**2))
+    return params, func2(xdata, *params), res, rms
+
+
+def plot_data(xdata, ydata, fits, residuals, rms, params, norm_rms, filename):
+    colors = ["Red", "Green", "Blue"]
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(10, 8), gridspec_kw={"height_ratios": [3, 1]}, sharex=True
+    )
+
+    for i in range(ydata.shape[1]):
+        ax1.scatter(xdata, ydata[:, i], c=colors[i], s=10, label=f"{colors[i]}")
+        ax1.plot(xdata, fits[i], c=colors[i])
+        ax2.scatter(
+            xdata, residuals[i], c=colors[i], s=7, label=f"{colors[i]} Residuals"
+        )
+
+    ax1.set_ylabel("Lightintensity in ADU's")
+    ax1.set_title(f"Data and fits from {filename}")
+    ax1.legend()
+    ax1.grid(True)
+
+    ax2.set_xlabel("Rotation in °")
+    ax2.set_ylabel("Residuals")
+    ax2.set_title("Residuals")
+    ax2.grid(True)
+
+    plt.tight_layout()
+    plt.show(block=False)
+
+    text_window = tk.Toplevel()
+    text_window.title("Results")
+    text_window.geometry("400x300")
+
+    text_area = scrolledtext.ScrolledText(text_window, width=40, height=15)
+    text_area.pack()
+
+    text_area.insert(tk.END, "Color\tPhase\tAmplitude\tRMS\tNorm RMS\n")
+    for color, par, rm, nrm in zip(colors, params, rms, norm_rms):
+        text_area.insert(
+            tk.END,
+            f"{color}\t{phase_dilemma(par[7], par[1])[0]:.6f}\t{phase_dilemma(par[7], par[1])[1]:.2f}\t{rm:.2f}\t{nrm:.2f}\n",
+        )
+
+    text_area.configure(state="disabled")
+
+    text_window.mainloop()
+
+
+def phase_dilemma(phase, amplitude):
+    if amplitude > 0:
+        phase %= 360
+        if phase > 180:
+            phase -= 180
+
+    if amplitude < 0:
+        phase %= 360
+        if phase > 180:
+            phase = (phase + 90) % 360
+        else:
+            phase = (phase + 270) % 360
+
+    return phase, abs(amplitude)
+
+
+def main(filenames, p0):
+    for filename in filenames:
+        dataset = load_data(filename)  # Load the dataset from the file
+
+        xdata, ydata = dataset[0]  # Access the first element of the dataset list
+
+        params_list = []
+        fits = []
+        residuals_list = []
+        rms_list = []
+        norm_rms_list = []
+
+        for i in range(ydata.shape[1]):
+            params, fit, res, rms = fit_dataset(xdata, ydata[:, i], p0)
+            params, fit, res, rms = fit_dataset2(xdata, ydata[:, i], params)
+            params_list.append(params)
+            fits.append(fit)
+            residuals_list.append(res)
+            rms_list.append(rms)
+
+            # Calculate relative RMS
+            amplitude = np.max(ydata[:, i]) - np.min(ydata[:, i])
+            norm_rms = 1000 * rms / amplitude
+            norm_rms_list.append(norm_rms)
+
+        # Plot the data
+        plot_data(
+            xdata,
+            ydata,
+            fits,
+            residuals_list,
+            rms_list,
+            params_list,
+            norm_rms_list,
+            filename,
+        )
+
+
+p0 = [1200, 1127, 10, 10, 2, 1.5, 1, 1, 0, 0, 1, 0.5, 0.8]
+
+# Files being analyzed
+filenames = ["3-16.txt"]
+
+main(filenames, p0)

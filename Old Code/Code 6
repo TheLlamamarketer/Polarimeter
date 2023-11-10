@@ -1,0 +1,158 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+from matplotlib.widgets import CheckButtons, RadioButtons
+import math 
+
+# Define the function you want to fit to the data
+def func(x, a, b, c, d):
+    return a * np.sin((x + c)/b *2*math.pi )+ d
+
+# Define the residual function (i.e., the function to minimize)
+def residuals(params, x, y):
+    return y - func(x, *params)
+
+# Initial guess for the parameters
+p0 = [7000, 180, 6, 7000]
+
+# Define lists to store the data functions, fits, residuals and ydata
+data_functions = []
+residuals_list = []
+data = [] # change variable name to avoid conflict
+ydata_list = []
+fits = []
+
+# Load the data from the text file
+data_file = open("RGB 50 3.txt", "r")
+lines = data_file.readlines()
+data_file.close()
+
+# Check button code
+colors = ["r", "g", "b"]
+labels = ["Red", "Green", "Blue"]
+visible = [True, True, True]
+fig, ax = plt.subplots()
+
+ycol = 1
+ 
+#label = [True, True, True]
+def update_ycol(label):
+    index = Sensor_labels.index(label)
+    global ycol
+    index = Sensor_labels.index(label)
+    if index == 0:
+        ycol = 1
+    elif index == 1:
+        ycol = 2
+    else:
+        ycol = 1
+    update_plot()
+
+def update_plot():
+    # Clear the previous plot
+    ax.clear()
+
+    # Plot the data for each dataset
+    functin_work(ycol)
+
+    # Add horizontal line at y=0
+    ax.axhline(y=0, color='black', linestyle='-')
+
+    # Set the legend
+    ax.legend()
+
+    # Redraw the canvas
+    fig.canvas.draw()
+
+def functin_work(ycol):
+    # Parse the data and fit each dataset
+    i = 0
+    while i < len(lines):
+        if "switching colors" in lines[i]:
+            i += 1
+        else:
+            data = [] # change variable name to avoid conflict
+            while i < len(lines) and "switching colors" not in lines[i]:
+                line = lines[i].strip()
+                if "," in line:
+                    data.append(list(map(float, line.split(",")))[0:3])
+                i += 1
+            # Convert data to numpy arrays
+            # ydata: 1 for normal light sensor and 2 for IR sensor
+            data = np.array(data)
+            xdata = data[:, 0]
+            ydata = data[:, ycol]
+            
+            #Shift xdata to be between 0 and 360
+            for j in range(len(xdata)):
+                n = int(xdata[j] / 360)
+                xdata[j] -= n * 360
+            
+            # Sort data by x values
+            xdata, ydata = zip(*sorted(zip(xdata, ydata)))
+            
+            # Use leastsq to find the optimal parameters
+            params, _ = leastsq(residuals, p0, args=(xdata, ydata))
+            res = residuals(params, xdata, ydata)
+            rms = np.sqrt(np.mean(res**2))
+            
+            # Print the optimal parameters and RMS error
+            print(f"Dataset {len(fits) + 1} parameters: {params}, RMS error: {rms}")
+            
+            # Store the data function, fit, residuals and ydata
+            data_functions.append(lambda x, a=params[0], b=params[1], c=params[2], d=params[3]: func(x, a, b, c, d))
+            fits.append(func(xdata, *params))
+            residuals_list.append(res)
+            ydata_list.append(ydata)
+            plot(xdata, data_functions, fits, ydata_list, residuals_list)
+
+# Plot the data and fits for each dataset
+colors = ["r", "g", "b"]
+lines = []
+def plot(xdata, data_functions, fits, ydata_list, residuals_list):
+    for i in range(3):
+        # Plot the data
+        line, = plt.plot(xdata, ydata_list[i], colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Data")
+        lines.append(line)
+        
+        # Plot the fit
+        line, = plt.plot(xdata, fits[i], colors[i % len(colors)] + "-", label=f"Dataset {i + 1} Fit")
+        lines.append(line)
+        
+        # Plot the function
+        line, = plt.plot(xdata, data_functions[i](xdata), colors[i % len(colors)] + "--", label=f"Dataset {i + 1} Function")
+        lines.append(line)
+        
+        # Plot the residuals
+        line, = plt.plot(xdata, residuals_list[i], colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Residuals")
+        lines.append(line)
+    plt.axhline(y=0, color='black', linestyle='-')
+    plt.legend()
+
+# Define a function to update the plot when a check button is clicked
+def update_plot(label):
+    index = labels.index(label)
+    lines[index*4].set_visible(not lines[index*4].get_visible()) # data
+    lines[index*4+1].set_visible(not lines[index*4+1].get_visible()) # fit
+    lines[index*4+2].set_visible(not lines[index*4+2].get_visible()) # function
+    lines[index*4+3].set_visible(not lines[index*4+3].get_visible()) # residuals
+    fig.canvas.draw()
+
+functin_work(ycol)
+
+
+# Define the check buttons
+labels = ["Red", "Green", "Blue"]
+check_buttons_ax = plt.axes([0.9, 0.5, 0.1, 0.1])
+check_buttons = CheckButtons(check_buttons_ax, labels, [True, True, True])
+check_buttons.on_clicked(update_plot)
+
+
+# Define the RadioButtons
+Sensor_labels = ["Visual Sensor", "IR Sensor"]
+radio_buttons_ax = plt.axes([0.9, 0.3, 0.1, 0.1])
+radio_buttons = RadioButtons(radio_buttons_ax,Sensor_labels, active=0)
+radio_buttons.on_clicked(update_ycol)
+
+# Show the plot
+plt.show()

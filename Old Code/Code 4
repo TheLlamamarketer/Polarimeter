@@ -1,0 +1,77 @@
+import numpy as np
+from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
+import math 
+
+# Define the function you want to fit to the data
+def func(x, a, b, c, d):
+    return a * np.sin((x + c)/b *2*math.pi )+ d
+
+# Initial guess for the parameters
+p0 = [7000, 180, 6, 7000]
+
+# Define a list to store the data functions and fits
+data_functions = []
+fits = []
+
+# Load the data from the text file
+data_file = open("RGB 50 4.txt", "r")
+lines = data_file.readlines()
+data_file.close()
+
+# Parse the data and fit each dataset
+i = 0
+while i < len(lines):
+    if "switching colors" in lines[i]:
+        i += 1
+    else:
+        data = []
+        while i < len(lines) and "switching colors" not in lines[i]:
+            line = lines[i].strip()
+            if "," in line:
+                data.append(list(map(float, line.split(",")))[0:3])
+            i += 1
+        
+        # Define the residual function (i.e., the function to minimize)
+        def residuals(params, x, y):
+            return y - func(x, *params)
+        
+        # Convert data to numpy arrays
+        # ydata: 1 for normal light sensor and 2 for IR sensor
+        data = np.array(data)
+        xdata = data[:, 0]
+        ydata = data[:, 1]
+        
+        # Shift xdata to be between 0 and 360
+        for j in range(len(xdata)):
+            n = int(xdata[j] / 360)
+            xdata[j] -= n * 360
+        
+        # Sort data by x values
+        xdata, ydata = zip(*sorted(zip(xdata, ydata)))
+        
+        # Use leastsq to find the optimal parameters
+        params, _ = leastsq(residuals, p0, args=(xdata, ydata))
+        res = residuals(params, xdata, ydata)
+        rms = np.sqrt(np.mean(res**2))
+        
+        # Print the optimal parameters and RMS error
+        print(f"Dataset {len(fits) + 1} parameters: {params}, RMS error: {rms}")
+        
+        # Store the data function and fit
+        data_functions.append(lambda x, a=params[0], b=params[1], c=params[2], d=params[3]: func(x, a, b, c, d))
+        fits.append(func(xdata, *params))
+        
+
+# Plot the data and fits
+colors = ["r", "g", "b"]
+for i in range(len(data_functions)):
+    plt.plot(xdata, ydata, colors[i % len(colors)] + "o", label=f"Dataset {i + 1} Data")
+    plt.plot(xdata, fits[i], colors[i % len(colors)] + "-", label=f"Dataset {i + 1} Fit")
+    plt.plot(xdata, data_functions[i](xdata), colors[i % len(colors)] + "--", label=f"Dataset {i + 1} Function")
+    plt.plot(xdata, residuals(params, xdata, ydata), colors[i % len(colors)] + "o", label=f"Dataset {i + 1} residuals")
+    ##if i == 0:
+       ## break
+plt.axhline(y=0, color='black', linestyle='-')
+plt.legend()
+plt.show()

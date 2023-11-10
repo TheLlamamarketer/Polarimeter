@@ -1,0 +1,117 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import RadioButtons
+from scipy.signal import find_peaks
+
+
+def load_data(filename):
+    with open(filename, "r") as data_file:
+        lines = data_file.readlines()
+
+    dataset = []
+    data = []
+
+    for line in lines:
+        line = line.strip()
+        if "," in line:
+            row = list(map(float, line.split(",")))
+            data.append(row)
+
+    data = np.array(data)
+    xdata = data[:, 0]
+    ydata = data[:, 1:]
+
+    xdata %= 360  # Ensure xdata stays within 360° range
+
+    sorted_indices = np.argsort(xdata)
+    xdata = xdata[sorted_indices]
+    ydata = ydata[sorted_indices]
+
+    xdata = np.reshape(xdata, ydata.shape[0])  # Reshape xdata to match ydata shape
+
+    dataset.append((xdata, ydata))  # Convert ydata to a NumPy array
+    return dataset
+
+
+def plot_power_spectrum(xdata, ydata, colors, filename):
+    fig, axes = plt.subplots(3, 1, figsize=(8, 12), sharex=True, sharey=True)
+
+    # Find the maximum amplitude value across all subplots
+    max_amplitude = np.max(np.sqrt(ydata))  # Compute the maximum amplitude
+    radio_button = RadioButtons(
+        ax=plt.axes([0, 0.05, 0.06, 0.05]), labels=["Period", "Frequency"], active=1
+    )
+    lines = []
+    points = []
+
+    for i, (color, ax) in enumerate(zip(colors, axes)):
+        y = ydata[:, i]  # Select the column for the current color
+        N = len(y)
+
+        yf = np.fft.fft(y - np.mean(y))  # Compute the FFT
+        amplitude = 2 * np.abs(yf) / N  # Compute the amplitude
+
+        dt = np.mean(np.diff(xdata))  # Time step
+        fs = 1 / dt  # Sampling frequency
+
+        freq = np.fft.fftfreq(N, d=1 / fs)[: N // 2]  # Construct frequency axis
+
+        # Avoid division by zero and handle the case when faxis is zero
+        per = np.where(freq != 0, 1 / freq, np.finfo(float).max)
+
+        peak_indices, _ = find_peaks(amplitude[:N // 2], height=1, distance=1)
+
+
+        (line,) = ax.plot(
+            freq, amplitude[: N // 2], c=color, label=f"{color}"
+        )  # Plot spectrum vs frequency
+        (point,) = ax.plot(freq[peak_indices], amplitude[peak_indices], 'ro') 
+        ax.set_ylabel("Amplitude")
+        ax.set_xlabel("Frequency [Hz]")
+        ax.legend([color])
+        ax.grid(True)
+
+        # Set the same limits for all subplots
+        ax.set_xlim(np.min(freq[1:]), np.max(freq[1:]))
+        ax.set_ylim(0, max_amplitude)
+
+        lines.append(line)
+        points.append(point)
+
+    def update_axis(label):
+        d = {"Period": per, "Frequency": freq}
+
+        for ax, line, point in zip(axes, lines, points):
+            data = d[label]
+            line.set_xdata(data)
+            point.set_xdata()
+
+            if label == "Period":
+                ax.set_xlabel("Period [s]")
+                ax.set_xlim(np.min(data[1:]), np.max(data[1:]))
+            elif label == "Frequency":
+                ax.set_xlabel("Frequency")
+                ax.set_xlim(np.min(data[1:]), np.max(data[1:]))
+
+        plt.draw()
+
+    radio_button.on_clicked(update_axis)
+
+    plt.title(f"{filename}")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
+
+
+def main(filenames):
+    for filename in filenames:
+        dataset = load_data(filename)  # Load the dataset from the file
+        colors = ["Red", "Green", "Blue"]
+
+        xdata, ydata = dataset[0]  # Access the first element of the dataset list
+
+        plot_power_spectrum(xdata, ydata, colors, filename)
+
+
+filenames = ["3-17.txt"]  # Add your data file name here
+main(filenames)
