@@ -22,8 +22,8 @@ def load_data(filename):
             data.append(row)
 
     data = np.array(data)
-    xdata = data[:, 1]
-    ydata = data[:, 2:]
+    xdata = data[:, 2]
+    ydata = data[:, 3:]
     ydata = ydata / np.max(ydata)
 
     sorted_indices = np.argsort(xdata)
@@ -35,7 +35,7 @@ def load_data(filename):
 
 
 def spline_fit(xdata, ydata):    
-    smoothed_data = gaussian_filter(ydata, 2)
+    smoothed_data = gaussian_filter(ydata, 20)
     spline = UnivariateSpline(xdata, smoothed_data, k=5, s=0.05)
     fit = spline(xdata)
     res = np.zeros_like(ydata)
@@ -105,7 +105,7 @@ def inverse_fft(frequencies, amplitude_spectrum, n):
 
 
 def plot():
-    dataset = load_data("old-code\-8c2.txt")
+    dataset = load_data("data\-9c2.txt")
 
     xdata, ydata = dataset[0]
     for i in range(ydata.shape[1]):
