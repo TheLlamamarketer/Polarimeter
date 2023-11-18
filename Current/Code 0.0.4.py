@@ -9,33 +9,34 @@ from scipy.signal import find_peaks
 # Different methods of fitting the modulation curve are used
 
 def load_data(filename):
-    with open(filename, "r") as data_file:
-        lines = data_file.readlines()
-
-    dataset = []
-    data = []
-
-    for line in lines:
-        line = line.strip()
-        if "," in line:
-            row = list(map(float, line.split(",")))
-            data.append(row)
+    dataset_split = []
+    data = np.loadtxt(filename, delimiter=",")
 
     data = np.array(data)
+    time = data[:, 0]
+    index = data[:, 1]
     xdata = data[:, 2]
     ydata = data[:, 3:]
-    ydata = ydata / np.max(ydata)
+    ydata = ydata / np.max(ydata, axis=0, keepdims=True) # Normalizes the amplitude of the data to 0 - 1
 
-    sorted_indices = np.argsort(xdata)
-    xdata = xdata[sorted_indices]
-    ydata = ydata[sorted_indices]
+    index_change = np.where(np.abs(np.diff(index)) > 2000)[0] + 1 # the spot at which the index changes drastically(like from 4096 to 0)
 
-    dataset.append((xdata, ydata))  # Convert ydata to a NumPy array
-    return dataset
+    ydata_split = np.split(ydata, index_change)
+    xdata_split = np.split(xdata, index_change)
+
+
+    # Sort each subarray independently based on the corresponding xdata values
+    for i in range(len(xdata_split)):
+        sorted_indices = np.argsort(xdata_split[i])
+        xdata_split[i] = xdata_split[i][sorted_indices]
+        ydata_split[i] = ydata_split[i][sorted_indices]
+
+    dataset_split.append((xdata_split, ydata_split))
+    return dataset_split
 
 
 def spline_fit(xdata, ydata):    
-    smoothed_data = gaussian_filter(ydata, 20)
+    smoothed_data = gaussian_filter(ydata, 3)
     spline = UnivariateSpline(xdata, smoothed_data, k=5, s=0.05)
     fit = spline(xdata)
     res = np.zeros_like(ydata)
@@ -46,7 +47,7 @@ def spline_fit(xdata, ydata):
 
     
     spline_prime = spline.derivative()
-    x_range = np.linspace(xdata.min(), xdata.max(), 10000000)  # Adjust the number of points
+    x_range = np.linspace(xdata.min(), xdata.max(), 500000)  # Adjust the number of points
     derivative_values = spline_prime(x_range)
 
     maxima = []
@@ -59,95 +60,69 @@ def spline_fit(xdata, ydata):
 
     return smoothed_data, fit, spline_prime(xdata), res, rms, maxima, minima
 
-def func(x, d, A, B, C):
-    return d +  A * (np.cos((x + B) / 180 * math.pi)**2)
-
-
-def residuals(d, A, B, C, x, y):
-    return y - func(x, d, A, B, 180)
-
-
-def sinus_fit(xdata, ydata):
-    p0 = [ 10000, 10633.643364493164, 213.48643322729848, 180 ]
-
-    def fixed_func(x, *args):
-        d, A, B, C = args
-        return func(x, d, A, B, C)
-
-    params, pcov = curve_fit(fixed_func, xdata, ydata, p0=p0, maxfev=100000, bounds=([0, 0, 0, 0], [np.inf, np.inf, 360, 360]))
-    d, A, B, C = params[0], params[1], params[2], params[3]
-    
-    param_errors = np.sqrt(np.diag(pcov))
-    res = residuals(d, A, B, C, xdata, ydata)
-    rms = np.sqrt(np.mean(res**2))
-
-    return d, A, B, C, func(xdata, d, A, B, C), param_errors, res, rms
-
-def fft_analysis(xdata, ydata):
-    # Perform FFT analysis
-    n = len(xdata)
-    fft_result = np.fft.fft(ydata)
-    frequencies = np.fft.fftfreq(n, xdata[1] - xdata[0])
-
-    # Calculate the amplitude spectrum (ignore the DC component) and normalize
-    amplitude_spectrum = 2.0 / n * np.abs(fft_result[:n // 2])
-    frequencies = frequencies[:n // 2]
-
-    return frequencies, amplitude_spectrum
-
-def inverse_fft(frequencies, amplitude_spectrum, n):
-    full_amplitude_spectrum = np.zeros(n, dtype=complex)
-    full_amplitude_spectrum[:len(frequencies)] = amplitude_spectrum
-    full_amplitude_spectrum[-len(frequencies):] = np.conj(amplitude_spectrum)
-    result = np.fft.ifft(full_amplitude_spectrum, n=n).real  
-
-    return result
-
-
 def plot():
     dataset = load_data("data\-9c2.txt")
-
     xdata, ydata = dataset[0]
-    for i in range(ydata.shape[1]):
-
-        d, a, b, c, cos_fit, error, res_cos, rms_cos = sinus_fit(xdata,  ydata[:, i])
-        smooth_Y, spline, spline_prime, res_spline, rms_spline, maxima, minima = spline_fit(xdata,  ydata[:, i])
-
-        frequencies, amplitude_spectrum = fft_analysis(xdata,  ydata[:, i])
-        reconstructed_signal = inverse_fft(frequencies, amplitude_spectrum, len(xdata))
-
     
-        np.set_printoptions(suppress=True)
-        print(f"Spline Fit: MINIMA: {minima} , MAXIMA: {maxima}")
-        print(f"Cosine Fit: y-Offset: {d:.5f} , Amp: {a:.5f}, Phase: {b:.5f}, Per: {c:.5f}")
-        print(f"RMS Spline: {rms_spline:.5f}, RMS Cosine: {rms_cos:.5f}")
-        print(f"Errors: {error}")
-        print()
+    xdata_complete = [data for j in range(len(ydata)) for data in xdata[j]]
+    ydata_complete = [data for j in range(len(ydata)) for i in range(ydata[j].shape[1]) for data in ydata[j][:, i]]
+
+    extrema = []
+    splines_collected = []
+    smoothing_collected = []
+
+    for j in range(len(ydata)):
+        for i in range(ydata[j].shape[1]):
+        
+            #d, a, b, c, cos_fit, error, res_cos, rms_cos = sinus_fit(xdata[j],  ydata[j][:, i])
+            smooth_Y, spline, spline_prime, res_spline, rms_spline, maxima, minima = spline_fit(xdata[j],  ydata[j][:, i])
+
+            if all((minima, maxima)):
+                 extrema.append([*minima, *maxima])
+            print(j)
+
+            splines_collected.append(spline)
+            smoothing_collected.append(smooth_Y)
+
+            '''
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={"height_ratios": [3, 1]}, sharex=True)
+
+            color = ['blue', 'black', 'limegreen', 'magenta', 'green']
+    
+            ax1.scatter(xdata,  ydata[:, i], label='ydata', s=5, color=color[0]) 
+            ax1.plot(xdata, smooth_Y, color[1], label='Smoothed Data')
+            ax1.plot(xdata, xdata*0, color[1]) 
+
+            ax1.plot(xdata, spline, color[2], label='Spline fit')
+            ax1.plot(xdata, spline_prime, color[4], label='Derivative of Spline fit')
+            ax1.plot(xdata, cos_fit, color[3], label='Cosine² Fit')  
+            ax1.legend()
+
+            ax2.scatter(xdata, res_spline, label='Residuals', s=5, color=color[2])
+
+            plt.show()'''
+    
+    indexes = list(range(len(extrema)))
+
+    fig1, ax1 = plt.subplots(2, 2, figsize=(10, 8))
+    ax1 = ax1.flatten()
+
+    names = ["minima_1", "minima_2", "maxima_1", "maxima_2"]
+    for i in range(4):
+        variable_data = [variables[i] for variables in extrema]
+        ax1[i].plot(indexes, variable_data)
+        ax1[i].set_title(names[i])
 
 
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={"height_ratios": [3, 1]}, sharex=True)
+    fig2, ax2 = plt.subplots(figsize=(8, 6))
+    ax2.scatter(xdata_complete, ydata_complete, label='Data', s=5, color='blue')
+    for i in range(len(xdata)):
+        ax2.plot(xdata[i], smoothing_collected[i], label='Smoothed Data', color='black')
+        ax2.plot(xdata[i], splines_collected[i], label='Spline', color='limegreen')
 
-        color = ['blue', 'black', 'limegreen', 'magenta', 'green']
- 
-        ax1.scatter(xdata,  ydata[:, i], label='ydata', s=5, color=color[0]) 
-        ax1.plot(xdata, smooth_Y, color[1], label='Smoothed Data')
-        ax1.plot(xdata, xdata*0, color[1]) 
 
-        ax1.plot(xdata, spline, color[2], label='Spline fit')
-        ax1.plot(xdata, spline_prime, color[4], label='Derivative of Spline fit')
-        ax1.plot(xdata, cos_fit, color[3], label='Cosine² Fit')  
-        ax1.legend()
-
-        #ax2.scatter(xdata, res_cos, label='Residuals', s=5, color=color[3])
-        ax2.scatter(xdata, res_spline, label='Residuals', s=5, color=color[2])
-
-        #fig, ax3 = plt.subplots(figsize=(10, 4))
-        #ax3.plot(xdata, reconstructed_signal, label='Reconstructed Signal', color='red')
-        #ax3.set_xlabel('Frequency')
-        #ax3.set_ylabel('Amplitude')
-        #ax3.legend()
-
-        plt.show()
+    plt.tight_layout()
+    plt.show()
 
 plot()
 
