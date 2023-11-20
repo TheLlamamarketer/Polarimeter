@@ -1,10 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
-import math
 from scipy.ndimage import gaussian_filter
 from scipy.interpolate import UnivariateSpline
 from scipy.signal import find_peaks
+
 
 # Different methods of fitting the modulation curve are used
 
@@ -31,32 +31,40 @@ def load_data(filename):
         xdata_split[i] = xdata_split[i][sorted_indices]
         ydata_split[i] = ydata_split[i][sorted_indices]
 
+
     dataset_split.append((xdata_split, ydata_split))
     return dataset_split
 
 
 def spline_fit(xdata, ydata):    
-    smoothed_data = gaussian_filter(ydata, 3)
-    spline = UnivariateSpline(xdata, smoothed_data, k=5, s=0.05)
+
+    xdata, index = np.unique(xdata, return_index=True)
+    ydata = ydata[index]
+
+    smoothed_data = gaussian_filter(ydata, 10)
+    spline = UnivariateSpline(xdata, ydata, k=4, s=0.01)
     fit = spline(xdata)
-    res = np.zeros_like(ydata)
+    res = np.zeros_like(xdata)
     for i in range(len(ydata)):
-        res[i] = ydata[i] - fit[i]
+        res[i] = xdata[i] - fit[i]
 
     rms = np.sqrt(np.mean(res**2))
 
     
     spline_prime = spline.derivative()
-    x_range = np.linspace(xdata.min(), xdata.max(), 500000)  # Adjust the number of points
-    derivative_values = spline_prime(x_range)
+    spline_sec_prime = spline_prime.derivative()
 
     maxima = []
     minima = []
-    for i in range(1, len(derivative_values) - 1):
-        if derivative_values[i - 1] > 0 and derivative_values[i] < 0:
-            maxima.append(x_range[i])
-        elif derivative_values[i - 1] < 0 and derivative_values[i] > 0:
-            minima.append(x_range[i])
+    roots = spline_prime.roots()
+
+    for root in roots:
+        extrema = spline_sec_prime(root)
+        if extrema > 0:
+            minima.append(root)
+        elif extrema < 0:
+            maxima.append(root)
+
 
     return smoothed_data, fit, spline_prime(xdata), res, rms, maxima, minima
 
@@ -117,8 +125,8 @@ def plot():
     fig2, ax2 = plt.subplots(figsize=(8, 6))
     ax2.scatter(xdata_complete, ydata_complete, label='Data', s=5, color='blue')
     for i in range(len(xdata)):
-        ax2.plot(xdata[i], smoothing_collected[i], label='Smoothed Data', color='black')
-        ax2.plot(xdata[i], splines_collected[i], label='Spline', color='limegreen')
+        ax2.plot( np.unique(xdata[i]), smoothing_collected[i], label='Smoothed Data', color='black')
+        ax2.plot(np.unique(xdata[i]), splines_collected[i], label='Spline', color='limegreen')
 
 
     plt.tight_layout()
