@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter
 from scipy.interpolate import UnivariateSpline
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, savgol_filter
 
 
-# The Minima and Maxima are calculated and plotted. The main data is compartmentalized into smaller data, that is independant from itself
+# Better plotting of the minima and general impovements
 
 def load_data(filename):
     dataset_split = []
@@ -36,19 +36,22 @@ def load_data(filename):
     return dataset_split
 
 
-def spline_fit(xdata, ydata):    
+def spline_fit(xdata, ydata, smoothing):    
 
     xdata, index = np.unique(xdata, return_index=True)
     ydata = ydata[index]
 
-    smoothed_data = gaussian_filter(ydata, 10)
-    spline = UnivariateSpline(xdata, ydata, k=4, s=0.01)
+    smoothed_data = savgol_filter(ydata, window_length=10, polyorder=3)
+    spline = UnivariateSpline(xdata, ydata, k=4, s=smoothing)
     fit = spline(xdata)
     res = np.zeros_like(xdata)
     for i in range(len(ydata)):
         res[i] = xdata[i] - fit[i]
 
     rms = np.sqrt(np.mean(res**2))
+
+    peaks, _ = find_peaks(ydata)
+    valleys, _ = find_peaks(-ydata)
 
     
     spline_prime = spline.derivative()
@@ -66,9 +69,9 @@ def spline_fit(xdata, ydata):
             maxima.append(root)
 
 
-    return smoothed_data, fit, spline_prime(xdata), res, rms, maxima, minima
+    return smoothed_data, fit, spline_prime(xdata), res, rms, maxima, minima, peaks, valleys
 
-def plot():
+def plot(smoothing):
     dataset = load_data("data\-9c2.txt")
     xdata, ydata = dataset[0]
     
@@ -76,39 +79,27 @@ def plot():
     ydata_complete = [data for j in range(len(ydata)) for i in range(ydata[j].shape[1]) for data in ydata[j][:, i]]
 
     extrema = []
+    peaks = []
+    valleys = []
     splines_collected = []
     smoothing_collected = []
+    derivative_collected = []
 
     for j in range(len(ydata)):
         for i in range(ydata[j].shape[1]):
         
-            #d, a, b, c, cos_fit, error, res_cos, rms_cos = sinus_fit(xdata[j],  ydata[j][:, i])
-            smooth_Y, spline, spline_prime, res_spline, rms_spline, maxima, minima = spline_fit(xdata[j],  ydata[j][:, i])
+            smooth_Y, spline, spline_prime, res_spline, rms_spline, maxima, minima, peak, valley = spline_fit(xdata[j],  ydata[j][:, i], smoothing)
 
             if all((minima, maxima)):
                  extrema.append([*minima, *maxima])
             print(j)
 
+            peaks.append(peak)
+            valleys.append(valley)
+
             splines_collected.append(spline)
             smoothing_collected.append(smooth_Y)
-
-            '''
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={"height_ratios": [3, 1]}, sharex=True)
-
-            color = ['blue', 'black', 'limegreen', 'magenta', 'green']
-    
-            ax1.scatter(xdata,  ydata[:, i], label='ydata', s=5, color=color[0]) 
-            ax1.plot(xdata, smooth_Y, color[1], label='Smoothed Data')
-            ax1.plot(xdata, xdata*0, color[1]) 
-
-            ax1.plot(xdata, spline, color[2], label='Spline fit')
-            ax1.plot(xdata, spline_prime, color[4], label='Derivative of Spline fit')
-            ax1.plot(xdata, cos_fit, color[3], label='Cosine² Fit')  
-            ax1.legend()
-
-            ax2.scatter(xdata, res_spline, label='Residuals', s=5, color=color[2])
-
-            plt.show()'''
+            derivative_collected.append(spline_prime)
     
     indexes = list(range(len(extrema)))
 
@@ -120,17 +111,31 @@ def plot():
         variable_data = [variables[i] for variables in extrema]
         ax1[i].plot(indexes, variable_data)
         ax1[i].set_title(names[i])
+        intercept = np.mean(variable_data)
+        horizontal_line = np.full_like(variable_data, intercept)
+        ax1[i].plot(indexes, horizontal_line)
+
+        res = variable_data - horizontal_line
+        rms = np.sqrt(np.mean(res**2))
+
+        print(names[i], intercept, rms)
 
 
     fig2, ax2 = plt.subplots(figsize=(8, 6))
     ax2.scatter(xdata_complete, ydata_complete, label='Data', s=5, color='blue')
+    ax2.plot(xdata_complete, np.zeros(len(xdata_complete)), color='black')
+
+
     for i in range(len(xdata)):
-        ax2.plot( np.unique(xdata[i]), smoothing_collected[i], label='Smoothed Data', color='black')
+        #ax2.plot(np.unique(xdata[i]), smoothing_collected[i], label='Smoothed Data', color='black')
         ax2.plot(np.unique(xdata[i]), splines_collected[i], label='Spline', color='limegreen')
+        ax2.plot(np.unique(xdata[i]), derivative_collected[i], label='Derivative', color='green')
+        #ax2.scatter(xdata(peaks[i]), ydata(peaks[i]), label='Peaks', s=7, color='red')
+        #ax2.scatter(xdata(valleys[i]), ydata(valleys[i]), label='Peaks', s=7, color='red')
 
 
     plt.tight_layout()
     plt.show()
 
-plot()
+plot(0.0013)
 
