@@ -133,27 +133,10 @@ def main(smoothing):
         print(j)
  
     
-    fig1, ax1 = plt.subplots(2, 2, figsize=(15, 8))
-    ax1 = ax1.flatten()
-
-    names = ["minima_1", "minima_2", "maxima_1", "maxima_2"]
-    
-    extrema_filtered = [item for item in extrema if any(item)]
-    indexes = list(range(len(extrema_filtered)))
-
     colormap = plt.cm.cividis
 
-    for i in range(4):
-        for j, smoothing_value in enumerate(smoothing_values):
-            variable_data = [variables[i][j] for variables in extrema_filtered]
-            color = colormap(j / (len(smoothing_values)-1))
-            ax1[i].plot(indexes, variable_data, color=color)
-        ax1[i].set_title(names[i])
 
-    gradient_colorbar(colormap, ax1, 'horizontal')
-
-
-    fig2, (ax2, ax3) = plt.subplots(2, 1, figsize=(15, 8))
+    fig1, (ax2, ax3) = plt.subplots(2, 1, figsize=(15, 8))
     ax2.scatter(xdata_complete, ydata_complete, label='Data', s=5, color='blue')
     ax3.plot(xdata_complete, np.zeros(len(xdata_complete)), color='black')
 
@@ -165,8 +148,47 @@ def main(smoothing):
 
     gradient_colorbar(colormap, (ax2, ax3), 'vertical')
 
+
+    fig2, ax1 = plt.subplots(2, 2, figsize=(15, 8))
+    ax1 = ax1.flatten()
+
+    names = ["minima_1", "minima_2", "maxima_1", "maxima_2"]
+    rms = []
+    
+    extrema_filtered = [item for item in extrema if any(item)]
+    indexes = list(range(len(extrema_filtered)))
+
+    for i in range(4):
+        rms_for_extr = []
+        for j, smoothing_value in enumerate(smoothing_values):
+            variable_data = [variables[i][j] for variables in extrema_filtered]
+            color = colormap(j / (len(smoothing_values)-1))
+            ax1[i].plot(indexes, variable_data, color=color)
+
+            intercept = np.mean(variable_data)
+            horizontal_line = np.full_like(variable_data, intercept)
+            ax1[i].plot(indexes, horizontal_line, color= color)
+
+            res = variable_data - horizontal_line
+            rms_per_smooth = np.sqrt(np.mean(res**2))
+            rms_for_extr.append(rms_per_smooth)
+        rms.append(rms_for_extr)
+        ax1[i].set_title(names[i])
+
+    gradient_colorbar(colormap, ax1, 'horizontal')
+
+    fig3, ax1 = plt.subplots(2, 2, figsize=(15, 8))
+    ax1 = ax1.flatten()
+
+
+    for i in range(4):
+        for j, smoothing_value in enumerate(smoothing_values):
+            color = colormap(j / (len(smoothing_values)-1))
+            ax1[i].scatter(smoothing_value, rms[i][j], color=color)
+
+
     plt.show()
 
-smoothing_values = np.linspace(0.00125, 0.00135, 10)
+smoothing_values = np.linspace(0.00124, 0.00128, 100)
 main(smoothing_values)
 
