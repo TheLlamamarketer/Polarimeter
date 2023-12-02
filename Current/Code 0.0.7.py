@@ -28,41 +28,20 @@ def load_data(filename):
     ydata_split = np.split(ydata, index_change)
     xdata_split = np.split(xdata, index_change)
 
-
-
-
-
     
-    def fit_linear_regression(x, y):
-        slope, intercept, _, _, _ = stats.linregress(x, y)
-        return slope, intercept
 
-    def plot_segments(x, y, change_point):
-        plt.plot(x, y, 'o', label='original data')
-        change_points =  [0, change_point[0], len(x)]
-        slopes = []
+    def get_slope(xdata):
+        y = [float(value) for value in xdata]
+        x = list(range(len(y)))
 
-        for i in range(len(change_points) - 1):
-            segment_x = x[change_points[i]:change_points[i+1]]
-            segment_y = y[change_points[i]:change_points[i+1]]
-            slope, intercept = fit_linear_regression(segment_x, segment_y)
-            print("slope", slope)
+        # looking for the transition from 0 to 360°, or the other way
+        change_point =  np.where(np.abs(np.diff(y)) > 100)[0] + 1
+        change_points = [0, change_point[0], len(x)] if change_point.size > 0 else [0, len(x)]
 
-            plt.plot(segment_x, intercept + slope * np.array(segment_x), label=f'segment {i+1}')
-            slopes.append(slope)
-
-
-        plt.legend()
-        plt.show()
+        slopes = [stats.linregress(x[change_points[i]:change_points[i+1]], y[change_points[i]:change_points[i+1]]).slope
+                for i in range(len(change_points) - 1)]
+        
         return np.mean(slopes)
-
-    # Assuming xdata_split[1] is a list of numerical values
-    y = [float(value) for value in xdata_split[2]]
-    x = list(range(len(y)))
-
-    # Plot original data and fit linear regressions to segments
-    slope = plot_segments(x, y, np.where(np.abs(np.diff(y)) > 100)[0] + 1)
-
 
 
     C_xdata_split = []
@@ -71,16 +50,12 @@ def load_data(filename):
     CC_ydata_split = []
 
     for j in range(len(xdata_split)):
-        if slope > 0:
+        if get_slope(xdata_split[j]) > 0:
             C_xdata_split.append(xdata_split[j])
             C_ydata_split.append(ydata_split[j])
-        elif slope > 0:
+        elif get_slope(xdata_split[j]) < 0:
             CC_xdata_split.append(xdata_split[j])
             CC_ydata_split.append(ydata_split[j])
-
-    print(len(C_xdata_split))
-    print(len(CC_xdata_split))
-
     
     # Sort each subarray independently based on the corresponding xdata values
     for i in range(len(xdata_split)):
