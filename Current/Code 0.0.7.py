@@ -189,7 +189,9 @@ def main(smoothing):
         ax2 = ax2.flatten()
 
         names = ["minima_1", "minima_2", "maxima_1", "maxima_2"]
+
         rms = []
+        accuracy = []
         
         extrema_filtered = [item for item in extrema if any(item)]
         indexes = list(range(len(extrema_filtered)))
@@ -197,8 +199,6 @@ def main(smoothing):
         for i in range(4):
             rms_for_extr = []
             accuracy_for_extr = []
-            precision_for_extr = []
-            std_dev_for_extr = []
             for j, smoothing_value in enumerate(smoothing_values):
                 variable_data = [variables[i][j] for variables in extrema_filtered]
                 color = colormap(j / (len(smoothing_values)-1))
@@ -211,9 +211,13 @@ def main(smoothing):
                 res = variable_data - horizontal_line
                 rms_per_smooth = np.sqrt(np.mean(res**2))
                 accuracy_per_smooth = np.mean(np.abs(res))
+
                 rms_for_extr.append(rms_per_smooth)
+                accuracy_for_extr.append(accuracy_per_smooth)
                 
             rms.append(rms_for_extr)
+            accuracy.append(accuracy_for_extr)
+
             ax2[i].set_title(names[i])
             ax2[i].grid()
 
@@ -232,8 +236,20 @@ def main(smoothing):
         gradient_colorbar(colormap, ax3, 'horizontal', smoothing_values)
         fig3.suptitle(f'Rms of Extrema {rotation[k]}', fontsize=16)
 
+
+        fig4, ax4 = plt.subplots(2, 2, figsize=(15, 8))
+        ax4 = ax4.flatten()
+
+        for i in range(4):
+            for j, smoothing_value in enumerate(smoothing_values):
+                color = colormap(j / (len(smoothing_values)-1))
+                ax4[i].scatter(smoothing_value, accuracy[i][j], color=color)
+                ax4[i].grid()
+        gradient_colorbar(colormap, ax4, 'horizontal', smoothing_values)
+        fig4.suptitle(f'Accuracy of Extrema {rotation[k]}', fontsize=16)
+
     plt.show()
 
-smoothing_values = np.linspace(0.0012, 0.0013, 30)
+smoothing_values = np.linspace(0.00118, 0.00128, 500)
 main(smoothing_values)
 
