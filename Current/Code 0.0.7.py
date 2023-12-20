@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter
@@ -12,9 +13,11 @@ from scipy import stats
 # Alternate between Clockwise and Counterclockwise rotation
 
 
-def load_data(filename):
+def load_data(*filenames):
+
     dataset_split = []
-    data = np.loadtxt(filename, delimiter=",")
+    data_list = [np.loadtxt(filename, delimiter=",") for filename in filenames]
+    data = np.concatenate(data_list)
 
     data = np.array(data)
     time = data[:, 0]
@@ -120,8 +123,8 @@ def gradient_colorbar(colormap, ax, orientation, smoothing_values):
     cbar.set_ticklabels([f'{smoothing_values[int(position)]:.5f}' for position in tick_positions])
 
 
-def main(smoothing):
-    dataset = load_data("data\-9c2.txt")
+def main(smoothing, *data):
+    dataset = load_data(*data)
     rotation = ["Clockwise", "Counterclockwise"]
     # k determimens the 
     for k in range(len(dataset[0])):
@@ -250,6 +253,6 @@ def main(smoothing):
 
     plt.show()
 
-smoothing_values = np.linspace(0.00118, 0.00128, 500)
-main(smoothing_values)
+smoothing_values = np.linspace(0.00118, 0.00128, 40)
+main(smoothing_values, "data\-9c5.txt")
 
