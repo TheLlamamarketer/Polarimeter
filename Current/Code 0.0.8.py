@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter
-from scipy.interpolate import UnivariateSpline
+from scipy.interpolate import UnivariateSpline, LSQUnivariateSpline
 from scipy.signal import find_peaks, savgol_filter
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.ticker import MaxNLocator
@@ -29,6 +29,13 @@ def load_data(*filenames):
 
     ydata = np.split(ydata, index_change)
     xdata = np.split(xdata, index_change)
+
+    for x in xdata:
+        for i in range(1, len(x)):
+            if abs(x[i] - x[i - 1]) > 180:  # Threshold can be adjusted
+                direction = np.sign(get_slope(x))  # Determine direction
+                adjustment = 360 * direction
+                x[i:] += adjustment  # Adjust subsequent data
 
     C_xdata = []
     CC_xdata = []
@@ -71,32 +78,27 @@ def get_slope(xdata):
 
 
 def unique(xdata, ydata):
-    ydata_dict = {}
-    for x, y in zip(xdata, ydata):
-        if x in ydata_dict:
-            ydata_dict[x].append(y)
-        else:
-            ydata_dict[x] = [y]
 
-    ydata_unique = {x: np.mean(y) for x, y in ydata_dict.items()}
-    xdata_unique = np.array(list(ydata_unique.keys()))
-    ydata_unique = np.array(list(ydata_unique.values()))
+    xdata_unique, pos = np.unique(xdata, return_index=True)
+    summed_ydata = np.add.reduceat(ydata, pos)
+    counts = np.diff(np.append(pos, len(ydata)))
+    ydata_unique = summed_ydata / counts
+
     return xdata_unique, ydata_unique
 
 
 
 def spline_fit(xdata, ydata, smoothing):    
     xdata, ydata = unique(xdata, ydata)
-    spline = UnivariateSpline(xdata, ydata, k=4, s=smoothing)
+
+    spline = UnivariateSpline(xdata, ydata, k=4, s=smoothing/len(xdata))
+
     fit = spline(xdata)
     res = np.zeros_like(xdata)
     for i in range(len(ydata)):
         res[i] = ydata[i] - fit[i]
 
     rms = np.sqrt(np.mean(res**2))
-
-    peaks, _ = find_peaks(ydata)
-    valleys, _ = find_peaks(-ydata)
 
     
     spline_prime = spline.derivative()
@@ -113,179 +115,148 @@ def spline_fit(xdata, ydata, smoothing):
         elif extrema < 0:
             maxima.append(root)
 
-
     return fit, spline_prime(xdata), res, rms, maxima, minima
 
-def gradient_colorbar(colormap, ax, orientation, smoothing_values):
 
-    num_smoothing_values = len(smoothing_values)
+def gradient_colorbar(colormap, ax, orientation, smoothing):
+
+    num_smoothing = len(smoothing)
     max_ticks = 10
-    num_ticks = min(max_ticks, num_smoothing_values)
+    num_ticks = min(max_ticks, num_smoothing)
 
     # Create a colorbar for smoothing values
-    cmap = LinearSegmentedColormap.from_list('custom_cmap', colormap(np.linspace(0, 1, num_smoothing_values)), N=num_smoothing_values)
-    tick_positions = np.linspace(0, num_smoothing_values - 1, num_ticks)
+    cmap = LinearSegmentedColormap.from_list('custom_cmap', colormap(np.linspace(0, 1, num_smoothing)), N=num_smoothing)
+    tick_positions = np.linspace(0, num_smoothing - 1, num_ticks)
 
-    cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=num_smoothing_values - 1)),
+    cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=num_smoothing - 1)),
                         ax=ax, orientation=orientation, fraction=0.05, pad=0.07, aspect=40, ticks=tick_positions)
     cbar.set_label('Smoothing')
 
-    cbar.set_ticklabels([f'{smoothing_values[int(position)]:.5f}' for position in tick_positions])
+    cbar.set_ticklabels([f'{smoothing[int(position)]:.5f}' for position in tick_positions])
+
+def process_data(xdata, ydata, smoothing):
+    extrema, splines_collected, derivative_collected, residuals_collected = [], [], [], []
+
+    for loop_ind, loop_ydata in enumerate(ydata):
+        extrema_loop = [[], [], [], []]
+        splines_loop, derivatives_loop, residuals_loop = [], [], []
+        
+        for color_ind in range(loop_ydata.shape[1]):
+            for smooth in smoothing:
+                spline, derivative, res_spline, rms_res_spline, maxima, minima = spline_fit(
+                    xdata[loop_ind], loop_ydata[:, color_ind], smooth)
+                
+                extrema_loop[0].append(minima[0] if minima else None)
+                extrema_loop[1].append(minima[1] if minima else None)
+                extrema_loop[2].append(maxima[0] if maxima else None)
+                extrema_loop[3].append(maxima[1] if maxima else None)
+                
+                splines_loop.append(spline)
+                derivatives_loop.append(derivative)
+                residuals_loop.append(res_spline)
+
+        extrema.append(extrema_loop)
+        splines_collected.append(splines_loop)
+        derivative_collected.append(derivatives_loop)
+        residuals_collected.append(residuals_loop)
+
+        print(loop_ind)
+
+    return extrema, splines_collected, derivative_collected, residuals_collected
+
+def plotting(rotation, ydata, xdata, smoothing):
+
+    extrema, splines, derivatives, residuals = process_data(xdata, ydata, smoothing)
+
+
+    xdata_complete = [datum for x in xdata for datum in x]
+    ydata_complete = [datum for y in ydata for color_data in y for datum in color_data]
+
+    colormap = plt.cm.cividis
+        # PLotting the raw data and the corresponding spline fits and dereivatives
+    fig_raw, ax_raw = plt.subplots(2, 1, figsize=(15, 8), sharex=True)
+    fig_res, ax_res = plt.subplots(1, 1, figsize=(15, 8))
+
+    for i in range(len(xdata)):
+        for j, smooth in enumerate(smoothing):
+            color = colormap(j / (len(smoothing)-1))
+            ax_raw[0].plot(np.unique(xdata[i]), splines[i][j], label='Spline', color=color)
+            ax_raw[1].plot(np.unique(xdata[i]), derivatives[i][j], label='Derivative',color=color)
+        
+            ax_res.scatter(np.unique(xdata[i]), residuals[i][j] ,s=5, label='Residuals',color=color)
+
+    ax_raw[0].scatter(xdata_complete, ydata_complete, label='Data', s=5, color='red')
+    ax_raw[1].plot(xdata_complete, np.zeros(len(xdata_complete)), color='black')
+
+    ax_raw[0].grid()
+    ax_raw[1].grid()
+    ax_res.grid()
+
+    gradient_colorbar(colormap, ax_raw, 'vertical', smoothing)
+    gradient_colorbar(colormap, ax_res, 'vertical', smoothing)
+    fig_raw.suptitle(f'Raw Data with Spline Fit {rotation}', fontsize=16)
+    fig_res.suptitle(f'Residuals of spline {rotation}', fontsize=16)     
+
+
+    # Plotting the resulting extrema from the spline fit
+    fig_extr, ax_extr = plt.subplots(2, 2, figsize=(15, 8))
+    ax_extr = ax_extr.flatten()
+
+    # PLotting the Rms from the induvidual extrema and their resulting average line
+    fig_rms, ax_rms = plt.subplots(2, 2, figsize=(15, 8))
+    ax_rms = ax_rms.flatten()
+
+
+    names = ["minima_1", "minima_2", "maxima_1", "maxima_2"]
+    
+    extrema_filtered = [item for item in extrema if any(item)]
+    indexes = list(range(len(extrema_filtered)))
+    for i in range(4):  # Loop over different types of extrema
+
+        for j, smooth_value in enumerate(smoothing):
+            extrema_points = [extrema_set[i][j] for extrema_set in extrema_filtered]
+            color = colormap(j / (len(smoothing) - 1))
+
+            ax_extr[i].scatter(indexes, extrema_points, color=color)
+
+            intercept = np.mean(extrema_points)
+            # horizontal_line = np.full_like(extrema_points, intercept)
+            # ax_extr[i].plot(indexes, horizontal_line, color=color)
+
+            residuals = extrema_points - intercept
+            rms = np.sqrt(np.mean(residuals**2))
+
+            ax_rms[i].scatter(smooth_value, rms, color=color)
+        
+
+        ax_extr[i].set_title(names[i])
+        ax_rms[i].set_title(names[i])
+        
+        ax_extr[i].grid()
+        ax_rms[i].grid()
+
+
+
+    gradient_colorbar(colormap, ax_extr, 'horizontal', smoothing)
+    gradient_colorbar(colormap, ax_rms, 'horizontal', smoothing)
+
+    fig_extr.suptitle(f'Extrema of Splines {rotation}', fontsize=16)
+    fig_rms.suptitle(f'Rms of Extrema {rotation}', fontsize=16)
 
 
 def main(smoothing, *data):
     dataset = load_data(*data)
     rotation = ["Clockwise", "Counterclockwise"]
-    # k determimens the direction of the data, k=0 is clockwise and k=1 is counterclockwise
-    for k in range(len(dataset[0])):
 
+    for k, (xdata, ydata) in enumerate(dataset):
         print(rotation[k])
 
-        xdata, ydata = dataset[k]
-        
-        xdata_complete = [data for j in range(len(ydata)) for data in xdata[j]]
-        ydata_complete = [data for j in range(len(ydata)) for i in range(ydata[j].shape[1]) for data in ydata[j][:, i]]
-
-        extrema = []
-        splines_collected = []
-        derivative_collected = []
-        residuals_collected = []
-
-        for j in range(len(ydata)):                 # looping through each loop of the data
-            minima_1 = []
-            minima_2 = []
-            maxima_1 = []
-            maxima_2 = []
-
-            splines_j = []
-            derivatives_j = []
-            residuals_j = []
-            
-            for i in range(ydata[j].shape[1]):      # looping through each color, when that gets added
-                for smooth in smoothing:
-                    spline, derivative, res_spline, rms_res_spline, maxima, minima = spline_fit(xdata[j], ydata[j][:, i], smooth)
-                    
-                    if all((minima, maxima)):
-                        minima_1.append(minima[0])
-                        minima_2.append(minima[1])
-                        maxima_1.append(maxima[0])
-                        maxima_2.append(maxima[1])
-                    
-                    splines_j.append(spline)
-                    derivatives_j.append(derivative)
-                    residuals_j.append(res_spline)
-
-            extrema.append([minima_1, minima_2, maxima_1, maxima_2])
-            splines_collected.append(splines_j)
-            derivative_collected.append(derivatives_j)
-            residuals_collected.append(residuals_j)
-
-            print(j)
-    
-        
-        colormap = plt.cm.cividis
-
-        # PLotting the raw data and the corresponding spline fits and dereivatives
-        fig_raw, ax_raw = plt.subplots(2, 1, figsize=(15, 8), sharex=True)
-
-        for i in range(len(xdata)):
-            for j, smoothing_value in enumerate(smoothing_values):
-                color = colormap(j / (len(smoothing_values)-1))
-                ax_raw[0].plot(np.unique(xdata[i]), splines_collected[i][j], label='Spline', color=color)
-                ax_raw[1].plot(np.unique(xdata[i]), derivative_collected[i][j], label='Derivative',color=color)
-
-        ax_raw[0].scatter(xdata_complete, ydata_complete, label='Data', s=5, color='red')
-        ax_raw[1].plot(xdata_complete, np.zeros(len(xdata_complete)), color='black')
-
-        ax_raw[0].grid()
-        ax_raw[1].grid()
-
-        gradient_colorbar(colormap, ax_raw, 'vertical', smoothing_values)
-        fig_raw.suptitle(f'Raw Data with Spline Fit {rotation[k]}', fontsize=16)
-
-
-
-        # PLotting the residuals from the spline and raw data
-        fig_res, ax_res = plt.subplots(1, 1, figsize=(15, 8))
-
-        for i in range(len(xdata)):
-            for j, smoothing_value in enumerate(smoothing_values):
-                color = colormap(j / (len(smoothing_values)-1))
-                ax_res.scatter(np.unique(xdata[i]), residuals_collected[i][j] ,s=5, label='Residuals',color=color)
-        ax_res.grid()
-
-        gradient_colorbar(colormap, ax_res, 'vertical', smoothing_values)
-        fig_res.suptitle(f'Residuals of spline {rotation[k]}', fontsize=16)
-
-
-
-        # Plotting the resulting extrema from the spline fit
-        fig_extr, ax_extr = plt.subplots(2, 2, figsize=(15, 8))
-        ax_extr = ax_extr.flatten()
-
-        names = ["minima_1", "minima_2", "maxima_1", "maxima_2"]
-
-        rms = []
-        accuracy = []
-        
-        extrema_filtered = [item for item in extrema if any(item)]
-        indexes = list(range(len(extrema_filtered)))
-
-        for i in range(4):
-            rms_for_extr = []
-            accuracy_for_extr = []
-            for j, smoothing_value in enumerate(smoothing_values):
-                variable_data = [variables[i][j] for variables in extrema_filtered]
-                color = colormap(j / (len(smoothing_values)-1))
-                ax_extr[i].plot(indexes, variable_data, color=color)
-
-                intercept = np.mean(variable_data)
-                horizontal_line = np.full_like(variable_data, intercept)
-                #ax_extr[i].plot(indexes, horizontal_line, color= color)
-
-                res = variable_data - horizontal_line
-                rms_per_smooth = np.sqrt(np.mean(res**2))
-                accuracy_per_smooth = np.mean(np.abs(res))
-
-                rms_for_extr.append(rms_per_smooth)
-                accuracy_for_extr.append(accuracy_per_smooth)
-                
-            rms.append(rms_for_extr)
-            accuracy.append(accuracy_for_extr)
-
-            ax_extr[i].set_title(names[i])
-            ax_extr[i].grid()
-
-        gradient_colorbar(colormap, ax_extr, 'horizontal', smoothing_values)
-        fig_extr.suptitle(f'Extrema of Splines {rotation[k]}', fontsize=16)
+        plotting(rotation[k], ydata, xdata, smoothing)
         
 
-        # PLotting the Rms from the induvidual extrema and their resulting average line
-        fig_rms, ax_rms = plt.subplots(2, 2, figsize=(15, 8))
-        ax_rms = ax_rms.flatten()
-
-        for i in range(4):
-            for j, smoothing_value in enumerate(smoothing_values):
-                color = colormap(j / (len(smoothing_values)-1))
-                ax_rms[i].scatter(smoothing_value, rms[i][j], color=color)
-                ax_rms[i].grid()
-        gradient_colorbar(colormap, ax_rms, 'horizontal', smoothing_values)
-        fig_rms.suptitle(f'Rms of Extrema {rotation[k]}', fontsize=16)
-
-        '''
-        fig4, ax4 = plt.subplots(2, 2, figsize=(15, 8))
-        ax4 = ax4.flatten()
-
-        for i in range(4):
-            for j, smoothing_value in enumerate(smoothing_values):
-                color = colormap(j / (len(smoothing_values)-1))
-                ax4[i].scatter(smoothing_value, accuracy[i][j], color=color)
-                ax4[i].grid()
-        gradient_colorbar(colormap, ax4, 'horizontal', smoothing_values)
-        fig4.suptitle(f'Accuracy of Extrema {rotation[k]}', fontsize=16)'''
 
     plt.show()
 
-smoothing_values = np.linspace(0.0011, 0.0018, 4)
-main(smoothing_values, "data\-9cw2.txt")
+smoothing = np.linspace(4.5, 6.5, 50)
+main(smoothing, "data\-9cw2.txt")
 

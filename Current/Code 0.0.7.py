@@ -181,9 +181,6 @@ def main(smoothing, *data):
                 color = colormap(j / (len(smoothing_values)-1))
                 ax_raw[0].plot(np.unique(xdata[i]), splines_collected[i][j], label='Spline', color=color)
                 ax_raw[1].plot(np.unique(xdata[i]), derivative_collected[i][j], label='Derivative',color=color)
-                u, count = np.unique(xdata[i], return_counts=True)
-                non_unique_counts = count[count > 2]
-                print(non_unique_counts)
 
         ax_raw[0].scatter(xdata_complete, ydata_complete, label='Data', s=5, color='red')
         ax_raw[1].plot(xdata_complete, np.zeros(len(xdata_complete)), color='black')
@@ -277,6 +274,6 @@ def main(smoothing, *data):
 
     plt.show()
 
-smoothing_values = np.linspace(0.0011, 0.0018, 4)
+smoothing_values = np.linspace(0.0011, 0.0017, 50)
 main(smoothing_values, "data\-9cw2.txt")
 
