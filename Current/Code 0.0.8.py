@@ -119,7 +119,6 @@ def spline_fit(xdata, ydata, smoothing):
 
 
 def gradient_colorbar(colormap, ax, orientation, smoothing):
-
     num_smoothing = len(smoothing)
     max_ticks = 10
     num_ticks = min(max_ticks, num_smoothing)
@@ -258,5 +257,5 @@ def main(smoothing, *data):
     plt.show()
 
 smoothing = np.linspace(4.5, 6.5, 50)
-main(smoothing, "data\-9cw2.txt")
+main(smoothing, "data\-9c9.txt")
 
