@@ -134,7 +134,7 @@ def gradient_colorbar(colormap, ax, orientation, smoothing):
 
 def process_data(xdata, ydata):
     extrema_collected = []
-    splines_collected, derivative_collected, residuals_collected = [], [], []
+    splines_collected, derivative_collected, residuals_collected, rms_collected = [], [], [], []
 
     for loop_ind, loop_ydata in enumerate(ydata):      
         extrema = [[], [], [], []]
@@ -150,12 +150,13 @@ def process_data(xdata, ydata):
         derivative_collected.append(derivative)
         residuals_collected.append(res_spline)
         extrema_collected.append(extrema)
+        rms_collected.append(rms_res_spline)
 
         print(loop_ind)
 
-    return extrema_collected, splines_collected, derivative_collected, residuals_collected, rms_res_spline
+    return extrema_collected, splines_collected, derivative_collected, residuals_collected, rms_collected
 
-def plotting(rotation, ydata, xdata, ydata_cc, xdata_cc):
+def plotting(rotation, ydata, xdata,):
 
     extrema, splines, derivatives, residuals, rms = process_data(xdata, ydata)
     '''
@@ -215,11 +216,14 @@ def plotting(rotation, ydata, xdata, ydata_cc, xdata_cc):
 
     sigma_values = np.linspace(15, 40, 200)  
 
-    # Calculate centers using the modified center_of_gravity function
-    results = center_of_gravity(extrema, sigma_values, xdata, ydata)
+    # Calculate centers using the modified find_center function
+    results = find_center(extrema, sigma_values, xdata, ydata, rms)
+
+    all_xdata = np.concatenate([res['xdata'] for res in results])
+    all_ydata = np.concatenate([res['ydata'] for res in results])
 
     # Plotting loop
-    ax_dat.scatter(results[-1]['xdata'], results[-1]['ydata'], s=5, color='blue')
+    ax_dat.scatter(all_xdata, all_ydata, s=5, color='blue')
     for index, extremum in enumerate(extrema):
         ax_ext.scatter(index, extremum[0][0], s=16, color='blue')
         ax_dat.axvline(x=extremum[0][0], color='red', linestyle='--')
@@ -227,6 +231,7 @@ def plotting(rotation, ydata, xdata, ydata_cc, xdata_cc):
         print(index)
 
     # Plotting loop for centers
+    '''
     for i, result in enumerate(results):
         color = colormap(result['sigma'] / max(sigma_values))
 
@@ -234,7 +239,7 @@ def plotting(rotation, ydata, xdata, ydata_cc, xdata_cc):
         ax_dat.axvline(x=result['center'], color=color, linestyle='--')
 
         # Plot center values
-        ax_cen.scatter(result['extremum_index'], result['center'], s=16, color=color)
+        ax_cen.scatter(result['extremum_index'], result['center'], s=16, color=color)'''
 
         
         
@@ -247,11 +252,11 @@ def plotting(rotation, ydata, xdata, ydata_cc, xdata_cc):
 
         intercept = np.mean(center_points)
         residuals = center_points - intercept
-        rms = np.sqrt(np.mean(residuals**2))
+        rms_sigma = np.sqrt(np.mean(residuals**2))
 
         sigmas.append(sigma)
-        rmss.append(rms)
-        ax_rms.scatter(sigma, rms, s=16, color=color)
+        rmss.append(rms_sigma)
+        ax_rms.scatter(sigma, rms_sigma, s=16, color=color)
 
     # Find the minimum sigma using the updated function
     min_sigma, polynomial, = find_minimum_sigma(sigmas, rmss)
@@ -265,6 +270,24 @@ def plotting(rotation, ydata, xdata, ydata_cc, xdata_cc):
 
     print('minimum sigma:', min_sigma)
 
+    result_optm = find_center(extrema, min_sigma, xdata, ydata, rms)
+
+    
+    errors = []
+    centers = [] 
+    for i, result in enumerate(result_optm):
+        std_deviation = result['std_deviation']
+        error = result['error']
+        centers.append(result['center'])
+        errors.append(error)
+
+        ax_dat.axvline(x=result['center'], color='green', linestyle='--')
+        ax_cen.errorbar(result['extremum_index'], result['center'], yerr=error, fmt='o', color='green', ecolor='lightgreen', capsize=5, label='Center with error')
+
+    center_mean = np.mean(centers)
+    error_mean = np.mean(errors)
+    print(f"Mean of centers: {center_mean}" )
+    print(f"Individual Errors: ±{error_mean}" )
 
     # Set plot titles
     ax_dat.set_title('Data')
@@ -272,21 +295,22 @@ def plotting(rotation, ydata, xdata, ydata_cc, xdata_cc):
     ax_cen.set_title('Center Plot')
     ax_rms.set_title('RMS Plot')
 
-def find_minimum_sigma(sigmas, rmss):
-    # Fit a polynomial to the data
-    polynomial_degree = 9  # Or the degree that best fits your data
-    coeffs = np.polyfit(sigmas, rmss, polynomial_degree)
-    p = np.poly1d(coeffs)  # Represent the polynomial using np.poly1d
 
-    # Find the roots of the derivative of the polynomial (the extrema)
+
+def find_minimum_sigma(sigmas, rmss):
+
+    polynomial_degree = 10
+    coeffs = np.polyfit(sigmas, rmss, polynomial_degree)
+    p = np.poly1d(coeffs) 
+
     deriv = np.polyder(p)
     der_roots = np.roots(deriv)
 
-    # Filter the roots to find the real ones within the range of sigma values
+
     real_roots = der_roots[np.isreal(der_roots)].real
     real_roots_in_range = real_roots[(real_roots >= min(sigmas)) & (real_roots <= max(sigmas))]
 
-    # Assume there are real roots within the range and find the minimum
+
     real_minima = p(real_roots_in_range)
     min_index = np.argmin(real_minima)
     min_sigma = real_roots_in_range[min_index]
@@ -294,89 +318,73 @@ def find_minimum_sigma(sigmas, rmss):
     return min_sigma, p
 
 
-def center_of_gravity(extrema, sigma_values, xdata_all, ydata_all, boundary_multiplier=4, max_iterations=1000, convergence_tolerance=1e-6):
-    """
-    Optimized function to calculate the center of gravity for given data.
-
-    Args:
-    extrema (list): List of extrema points.
-    sigma_values (list): List of sigma values for calculation.
-    xdata_all (list): List of all x data points.
-    ydata_all (list): List of all y data points.
-    boundary_multiplier (int, optional): Multiplier for boundary calculation. Default to 4.
-    max_iterations (int, optional): Maximum number of iterations. Default to 1000.
-    convergence_tolerance (float, optional): Tolerance for convergence. Default to 1e-6.
-
-    Returns:
-    list: A list of dictionaries containing the results for each extremum and sigma value.
-    """
+def find_center(extrema, sigma_values, xdata_all, ydata_all, rms, boundary_multiplier=3, max_iterations=1000, convergence_tolerance=1e-6):
+    sigma_values = np.atleast_1d(sigma_values)
 
     results = []
     for index, extremum in enumerate(extrema):
         
-        ydata_original = ydata_all[index]
-        xdata_original = xdata_all[index]
-        max_ydata = np.max(ydata_original)  # Compute once, outside the loop
-        ydata_original = max_ydata - ydata_original
+        ydata_o = ydata_all[index]
+        xdata_o = xdata_all[index]
+        max_ydata = np.max(ydata_o)
+        ydata_o = max_ydata - ydata_o
         minimum_value = extremum[0][0]
 
         for sigma in sigma_values:
-            centers = []
+            centers = [minimum_value]  # Initialize with the first center value
             bounds = []
-            weighted_values = []
+            gdata = []
 
             for iteration in range(max_iterations):
                 # Calculate bounds
-                if iteration == 0:
-                    lower_bound = minimum_value - boundary_multiplier * sigma
-                    upper_bound = minimum_value + boundary_multiplier * sigma
-                else:
-                    lower_bound = centers[-1] - boundary_multiplier * sigma
-                    upper_bound = centers[-1] + boundary_multiplier * sigma
+                lower_bound = centers[-1] - boundary_multiplier * sigma
+                upper_bound = centers[-1] + boundary_multiplier * sigma
 
                 bounds.append((lower_bound, upper_bound))
 
-                # Apply mask to data
-                mask = (xdata_original > lower_bound) & (xdata_original < upper_bound)
-                masked_xdata = xdata_original[mask]
-                masked_ydata = ydata_original[mask]
+                mask = (xdata_o > lower_bound) & (xdata_o < upper_bound)
+                x = xdata_o[mask]
+                y = ydata_o[mask]
+                x = x - centers[-1]
 
-                # Calculate weighted sum
-                if iteration == 0:
-                    weighted_sum = masked_ydata
-                else:
-                    weighted_sum = masked_ydata * np.exp(-(masked_xdata - centers[-1])**2 / (sigma**2))
+                g = y * np.exp(-((x)**2 / (sigma**2)))
+                center = np.sum(x * g) / np.sum(g) + centers[-1]
 
-                center = np.sum(masked_xdata * weighted_sum) / np.sum(weighted_sum)
-
-                # Check for convergence every few iterations to save computation time
-                if iteration > 0 and iteration % 5 == 0 and abs(centers[-1] - center) < convergence_tolerance:
+                if iteration > 0 and abs(centers[-1] - center) < convergence_tolerance:
                     break
 
                 centers.append(center)
-                weighted_values.append(weighted_sum)
+                gdata.append(g)
 
             center_std = np.std(centers) if len(centers) > 1 else None
+            error = np.sqrt(np.sum(rms[index]**2 * (x)**2) / (np.sum(g)**2))
 
-            results.append({'center': centers[-1], 'error': center_std, 'bounds': bounds[-1], 
-                            'weighted_values': weighted_values[-1], 'mask': mask, 
-                            'extremum_index': index, 'sigma': sigma,
-                            'xdata': masked_xdata, 'ydata': masked_ydata})
+            results.append({
+                'center': centers[-1], 
+                'std_deviation': center_std, 
+                'error': error, 
+                'bounds': bounds[-1], 
+                'gdata': gdata[-1], 
+                'mask': mask, 
+                'extremum_index': index, 
+                'sigma': sigma,
+                'xdata': xdata_o[mask], 
+                'ydata': y
+            })
 
     return results
-
 
 
 def main(*data):
     dataset = load_data(*data)
     rotation = ["Clockwise", "Counterclockwise"]
-    xdata_c, ydata_c = dataset[1]
-    xdata_cc, ydata_cc = dataset[1]
 
-    plotting(rotation[1], ydata_c, xdata_c, ydata_cc, xdata_cc)
+    k=0
+    xdata, ydata = dataset[k]
 
-        
+    plotting(rotation[k], ydata, xdata)
+
     plt.show()
 
-main("data\-9cs1a.txt")
+main( "data\-9c9.txt")
 
