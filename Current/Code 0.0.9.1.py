@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit, minimize, fmin
 from scipy.interpolate import UnivariateSpline, LSQUnivariateSpline, interp1d
@@ -9,70 +8,70 @@ from scipy import stats
 from numpy.polynomial.polynomial import Polynomial
 
 
-# Alternate between Clockwise and Counterclockwise rotation
-
-
 def load_data(*filenames):
-
     dataset_split = []
     data_list = [np.loadtxt(filename, delimiter=",") for filename in filenames]
-    data = np.array(np.concatenate(data_list))
+    data = np.concatenate(data_list)
 
     time = data[:, 0]
     index = data[:, 1]
     xdata = data[:, 2]
-    ydata = data[:, 3]
-    ydata = ydata / np.max(ydata, axis=0, keepdims=True) # Normalizes the amplitude of the data to 0 - 1
+    ydata = data[:, 3] / np.max(data[:, 3], axis=0)  
 
-    index_change = np.where(np.abs(np.diff(index)) > 500)[0] + 1 # the spot at which the index changes drasticly(like from 4096 to 0)
+    index_change = np.where(np.abs(np.diff(index)) > 500)[0] + 1
 
-    ydata = np.split(ydata, index_change)
-    xdata = np.split(xdata, index_change)
+    ydata_split = np.split(ydata, index_change)
+    xdata_split = np.split(xdata, index_change)
 
-    for x in xdata:
-        for i in range(1, len(x)):
-            if abs(x[i] - x[i - 1]) > 180:  # Threshold can be adjusted
-                direction = np.sign(get_slope(x))  # Determine direction
-                adjustment = 360 * direction
-                x[i:] += adjustment  # Adjust subsequent data
+    for x in xdata_split:
+        threshold_crossings = np.where(np.abs(np.diff(x)) > 180)[0]
+        for idx in threshold_crossings:
+            direction = np.sign(get_slope(x))  
+            adjustment = direction * 360
+            x[idx+1:] += adjustment
 
-    C_xdata = []
-    CC_xdata = []
-    C_ydata = []
-    CC_ydata = []
+    C_xdata, C_ydata, CC_xdata, CC_ydata = [], [], [], []
+    for x, y in zip(xdata_split, ydata_split):
+        if get_slope(x) > 0:
+            C_xdata.append(x)
+            C_ydata.append(y)
+        else:
+            CC_xdata.append(x)
+            CC_ydata.append(y)
 
-    for j in range(len(xdata)):
-        if get_slope(xdata[j]) > 0:
-            C_xdata.append(xdata[j])
-            C_ydata.append(ydata[j])
-        elif get_slope(xdata[j]) < 0:
-            CC_xdata.append(xdata[j])
-            CC_ydata.append(ydata[j])
 
-    # Sort each subarray independently based on the corresponding xdata values
     def sort(xdata, ydata):
         for i in range(len(xdata)):
             sorted_indices = np.argsort(xdata[i])
-            xdata[i] = xdata[i][sorted_indices]
-            ydata[i] = ydata[i][sorted_indices]
+            xdata[i], ydata[i] = xdata[i][sorted_indices], ydata[i][sorted_indices]
         return xdata, ydata
 
-    dataset_split.append((sort(C_xdata, C_ydata)))
-    dataset_split.append((sort(CC_xdata, CC_ydata)))
+    dataset_split.append(sort(C_xdata, C_ydata))
+    dataset_split.append(sort(CC_xdata, CC_ydata))
     return dataset_split
 
 
 def get_slope(xdata):
-    y = [float(value) for value in xdata]
-    x = list(range(len(y)))
+    xdata = np.array(xdata, dtype=float)
+    x = np.arange(len(xdata))
 
-    # looking for the transition from 0 to 360°, or the other way
-    change_point =  np.where(np.abs(np.diff(y)) > 50)[0] + 1
-    change_points = [0, change_point[0], len(x)] if change_point.size > 0 else [0, len(x)]
+    # identify change points
+    change_point = np.where(np.abs(np.diff(xdata)) > 50)[0]
+    if change_point.size > 0:
+        change_points = np.insert(change_point + 1, 0, 0)
+        change_points = np.append(change_points, len(xdata))
+    else:
+        change_points = np.array([0, len(xdata)])
 
-    slopes = [stats.linregress(x[change_points[i]:change_points[i+1]], y[change_points[i]:change_points[i+1]]).slope
-            for i in range(len(change_points) - 1)]
-    
+    # Direct calculation of slopes for each segment
+    slopes = []
+    for i in range(len(change_points) - 1):
+        xi = x[change_points[i]:change_points[i+1]]
+        yi = xdata[change_points[i]:change_points[i+1]]
+        A = np.vstack([xi, np.ones(len(xi))]).T
+        slope, _ = np.linalg.lstsq(A, yi, rcond=None)[0]
+        slopes.append(slope)
+
     return np.mean(slopes)
 
 
@@ -91,27 +90,22 @@ def spline_fit(xdata, ydata):
     xdata, ydata = unique(xdata, ydata)
 
     spline = UnivariateSpline(xdata, ydata, k=4, s=6.25/len(xdata))
-
     fit = spline(xdata)
-    res = np.zeros_like(xdata)
-    for i in range(len(ydata)):
-        res[i] = ydata[i] - fit[i]
+
+    # Vectorized calculation of residuals
+    res = ydata - fit
 
     rms = np.sqrt(np.mean(res**2))
     
     spline_prime = spline.derivative()
     spline_sec_prime = spline_prime.derivative()
 
-    maxima = []
-    minima = []
     roots = spline_prime.roots()
+    extrema_values = spline_sec_prime(roots)
 
-    for root in roots:
-        extrema = spline_sec_prime(root)
-        if extrema > 0:
-            minima.append(root)
-        elif extrema < 0:
-            maxima.append(root)
+    # Efficient handling of maxima and minima
+    minima = roots[extrema_values > 0]
+    maxima = roots[extrema_values < 0]
 
     return fit, spline_prime(xdata), res, rms, maxima, minima
 
@@ -133,18 +127,18 @@ def gradient_colorbar(colormap, ax, orientation, smoothing):
 
 
 def process_data(xdata, ydata):
-    extrema_collected = []
-    splines_collected, derivative_collected, residuals_collected, rms_collected = [], [], [], []
+    extrema_collected, splines_collected, derivative_collected, residuals_collected, rms_collected = [], [], [], [], []
 
     for loop_ind, loop_ydata in enumerate(ydata):      
-        extrema = [[], [], [], []]
-        spline, derivative, res_spline, rms_res_spline, maxima, minima = spline_fit(
-            xdata[loop_ind], loop_ydata)
+        spline, derivative, res_spline, rms_res_spline, maxima, minima = spline_fit(xdata[loop_ind], loop_ydata)
         
-        extrema[0].append(minima[0] if minima else None)
-        extrema[1].append(minima[1] if minima else None)
-        extrema[2].append(maxima[0] if maxima else None)
-        extrema[3].append(maxima[1] if maxima else None)
+        
+        extrema = [
+            [minima[0] if len(minima) > 0 else None],
+            [minima[1] if len(minima) > 1 else None],
+            [maxima[0] if len(maxima) > 0 else None],
+            [maxima[1] if len(maxima) > 1 else None]
+        ]
         
         splines_collected.append(spline)
         derivative_collected.append(derivative)
@@ -214,7 +208,7 @@ def plotting(rotation, ydata, xdata,):
     fig_cen, ax_cen = plt.subplots(1, 1, figsize=(15, 8), sharex=True) 
     fig_rms, ax_rms = plt.subplots(1, 1, figsize=(15, 8), sharex=True)
 
-    sigma_values = np.linspace(15, 40, 200)  
+    sigma_values = np.linspace(15, 40, 50)  
 
     # Calculate centers using the modified find_center function
     results = find_center(extrema, sigma_values, xdata, ydata, rms)
@@ -264,15 +258,18 @@ def plotting(rotation, ydata, xdata,):
     dense_sigmas = np.linspace(min(sigmas), max(sigmas), 500)
     fitted_rmss = polynomial(dense_sigmas)
 
+    
     # Add polynomial fit and minimum sigma line to the existing ax_rms plot
     ax_rms.plot(dense_sigmas, fitted_rmss, color='purple', label='Polynomial Fit')
-    ax_rms.axvline(x=min_sigma, color='green', linestyle='--', label=f'Minimum at {min_sigma:.2f}')
+    if min_sigma is not None:
+        ax_rms.axvline(x=min_sigma, color='green', linestyle='--', label=f'Minimum at {min_sigma:.2f}')
 
-    print('minimum sigma:', min_sigma)
+        print('minimum sigma:', min_sigma)
 
-    result_optm = find_center(extrema, min_sigma, xdata, ydata, rms)
+        result_optm = find_center(extrema, min_sigma, xdata, ydata, rms)
+    else:
+        result_optm = find_center(extrema, 22, xdata, ydata, rms)
 
-    
     errors = []
     centers = [] 
     for i, result in enumerate(result_optm):
@@ -298,32 +295,31 @@ def plotting(rotation, ydata, xdata,):
 
 
 def find_minimum_sigma(sigmas, rmss):
-
     polynomial_degree = 10
     coeffs = np.polyfit(sigmas, rmss, polynomial_degree)
-    p = np.poly1d(coeffs) 
+    p = np.poly1d(coeffs)
 
     deriv = np.polyder(p)
     der_roots = np.roots(deriv)
 
-
     real_roots = der_roots[np.isreal(der_roots)].real
     real_roots_in_range = real_roots[(real_roots >= min(sigmas)) & (real_roots <= max(sigmas))]
 
-
-    real_minima = p(real_roots_in_range)
-    min_index = np.argmin(real_minima)
-    min_sigma = real_roots_in_range[min_index]
+    if real_roots_in_range.size > 0:
+        real_minima = p(real_roots_in_range)
+        min_index = np.argmin(real_minima)
+        min_sigma = real_roots_in_range[min_index]
+    else:
+        min_sigma = None  
 
     return min_sigma, p
 
 
-def find_center(extrema, sigma_values, xdata_all, ydata_all, rms, boundary_multiplier=3, max_iterations=1000, convergence_tolerance=1e-6):
+def find_center(extrema, sigma_values, xdata_all, ydata_all, rms, boundary_multiplier=3, max_iterations=1000, convergence_tolerance=1e-7):
     sigma_values = np.atleast_1d(sigma_values)
 
     results = []
     for index, extremum in enumerate(extrema):
-        
         ydata_o = ydata_all[index]
         xdata_o = xdata_all[index]
         max_ydata = np.max(ydata_o)
@@ -335,29 +331,33 @@ def find_center(extrema, sigma_values, xdata_all, ydata_all, rms, boundary_multi
             bounds = []
             gdata = []
 
+            # Pre-calculate values that are constant for each extremum and sigma
+            sigma_squared = sigma**2
+
             for iteration in range(max_iterations):
                 # Calculate bounds
-                lower_bound = centers[-1] - boundary_multiplier * sigma
-                upper_bound = centers[-1] + boundary_multiplier * sigma
+                center_last = centers[-1]
+                lower_bound = center_last - boundary_multiplier * sigma
+                upper_bound = center_last + boundary_multiplier * sigma
 
                 bounds.append((lower_bound, upper_bound))
 
                 mask = (xdata_o > lower_bound) & (xdata_o < upper_bound)
                 x = xdata_o[mask]
                 y = ydata_o[mask]
-                x = x - centers[-1]
+                x_shifted = x - center_last
 
-                g = y * np.exp(-((x)**2 / (sigma**2)))
-                center = np.sum(x * g) / np.sum(g) + centers[-1]
+                g = y * np.exp(-((x_shifted)**2 / sigma_squared))
+                center_new = np.sum(x_shifted * g) / np.sum(g) + center_last
 
-                if iteration > 0 and abs(centers[-1] - center) < convergence_tolerance:
+                if iteration > 0 and abs(center_last - center_new) < convergence_tolerance:
                     break
 
-                centers.append(center)
+                centers.append(center_new)
                 gdata.append(g)
 
             center_std = np.std(centers) if len(centers) > 1 else None
-            error = np.sqrt(np.sum(rms[index]**2 * (x)**2) / (np.sum(g)**2))
+            error = np.sqrt(np.sum(rms[index]**2 * (x_shifted)**2) / (np.sum(g)**2))
 
             results.append({
                 'center': centers[-1], 
@@ -379,7 +379,7 @@ def main(*data):
     dataset = load_data(*data)
     rotation = ["Clockwise", "Counterclockwise"]
 
-    k=0
+    k=1
     xdata, ydata = dataset[k]
 
     plotting(rotation[k], ydata, xdata)

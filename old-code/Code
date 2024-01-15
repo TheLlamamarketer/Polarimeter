@@ -8,7 +8,7 @@ def func(x, a, b, c, d):
     return a * np.sin((x + c)/b *2*math.pi )+ d
 
 
-data = "40 Red 2.txt"
+data = "old-code/40 Red 2.txt"
 
 # Load the data from a text file
 ydata = np.loadtxt(data, delimiter=',', usecols=(1))
