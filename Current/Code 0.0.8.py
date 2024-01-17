@@ -256,6 +256,6 @@ def main(smoothing, *data):
 
     plt.show()
 
-smoothing = np.linspace(4.5, 6.5, 2)
-main(smoothing, "data\-9c9.txt")
+smoothing = np.linspace(4.5, 6.5, 40)
+main(smoothing, "data\-9cw3.txt")
 

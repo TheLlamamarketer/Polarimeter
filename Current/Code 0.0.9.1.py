@@ -6,6 +6,7 @@ from scipy.signal import find_peaks, savgol_filter
 from matplotlib.colors import LinearSegmentedColormap
 from scipy import stats
 from numpy.polynomial.polynomial import Polynomial
+import random as random
 
 
 def load_data(*filenames):
@@ -17,6 +18,15 @@ def load_data(*filenames):
     index = data[:, 1]
     xdata = data[:, 2]
     ydata = data[:, 3] / np.max(data[:, 3], axis=0)  
+
+
+
+    #angle = 110
+    #phase_shift = np.pi/2
+    #index = np.linspace(0, 4096, 4096)
+    #xdata = np.linspace(angle, angle + 360, 4096)
+    #ydata = np.sin(np.radians(xdata) + phase_shift)**2 + np.random.uniform(-0.02, 0.02, size=len(xdata))
+
 
     index_change = np.where(np.abs(np.diff(index)) > 500)[0] + 1
 
@@ -87,7 +97,7 @@ def unique(xdata, ydata):
 
 
 def spline_fit(xdata, ydata):    
-    xdata, ydata = unique(xdata, ydata)
+    #xdata, ydata = unique(xdata, ydata)
 
     spline = UnivariateSpline(xdata, ydata, k=4, s=6.25/len(xdata))
     fit = spline(xdata)
@@ -208,13 +218,16 @@ def plotting(rotation, ydata, xdata,):
     fig_cen, ax_cen = plt.subplots(1, 1, figsize=(15, 8), sharex=True) 
     fig_rms, ax_rms = plt.subplots(1, 1, figsize=(15, 8), sharex=True)
 
-    sigma_values = np.linspace(15, 40, 50)  
+    sigma_values = np.linspace(15, 40, 200)  
 
     # Calculate centers using the modified find_center function
     results = find_center(extrema, sigma_values, xdata, ydata, rms)
 
     all_xdata = np.concatenate([res['xdata'] for res in results])
     all_ydata = np.concatenate([res['ydata'] for res in results])
+
+    unique_data = set(zip(all_xdata, all_ydata))
+    all_xdata, all_ydata = zip(*unique_data)
 
     # Plotting loop
     ax_dat.scatter(all_xdata, all_ydata, s=5, color='blue')
@@ -379,12 +392,13 @@ def main(*data):
     dataset = load_data(*data)
     rotation = ["Clockwise", "Counterclockwise"]
 
-    k=1
+    k=0
     xdata, ydata = dataset[k]
+
 
     plotting(rotation[k], ydata, xdata)
 
     plt.show()
 
-main( "data\-9c9.txt")
+main( "data\-9cw3.txt")
 
